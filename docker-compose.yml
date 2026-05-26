@@ -1,0 +1,75 @@
+# Full stack: Postgres, Redis, one-shot migrate, API, worker.
+# Start everything:  docker compose up -d --build
+# Dependencies only: docker compose up -d postgres redis
+# Clean old containers after changing compose: docker compose down --remove-orphans
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kubepilot
+      POSTGRES_PASSWORD: kubepilot
+      POSTGRES_DB: kubepilot
+    # Host 5433 avoids clashing with a local Postgres bound to :5432 (common on macOS).
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kubepilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: alembic upgrade head
+    environment:
+      KUBEPILOT_DATABASE_URL: postgresql+psycopg://kubepilot:kubepilot@postgres:5432/kubepilot
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: uvicorn kubepilot.api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      KUBEPILOT_DATABASE_URL: postgresql+psycopg://kubepilot:kubepilot@postgres:5432/kubepilot
+      KUBEPILOT_REDIS_URL: redis://redis:6379/0
+      KUBEPILOT_FEATURE_CLOUDWATCH: "false"
+      KUBEPILOT_FEATURE_COST_EXPLORER: "false"
+      KUBEPILOT_ALLOW_STORE_KUBECONFIG: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: arq kubepilot.worker.worker.WorkerSettings
+    environment:
+      KUBEPILOT_DATABASE_URL: postgresql+psycopg://kubepilot:kubepilot@postgres:5432/kubepilot
+      KUBEPILOT_REDIS_URL: redis://redis:6379/0
+      KUBEPILOT_FEATURE_CLOUDWATCH: "false"
+      KUBEPILOT_FEATURE_COST_EXPLORER: "false"
+      KUBEPILOT_ALLOW_STORE_KUBECONFIG: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started

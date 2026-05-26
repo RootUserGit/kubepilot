@@ -1,0 +1,40 @@
+# Python
+*.py[cod]
+__pycache__/
+.venv/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local env files only (do not use a broad `env*` rule — it ignores `env.example`)
+.env
+.env.*
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+.qodo
+
+# Local Kubernetes scratch manifests
+test-k8s-files/
+
+# Phase scope: application + runtime glue only — not CI/CD, cloud infra, or Helm charts
+.github/
+infra/
+deploy/
+scripts/
+services/
+docs/
+
+# Keep `data/` tracked: Alembic migrations live under `data/migrations/` (see alembic.ini).
+# Keep `packages/` tracked: `tests/test_openapi.py` and the hand-written API contract.
+
+# LLM / serving track is separate from the Python app for now
+ai/
+
+# Optional local hooks config (not required to run the app)
+.pre-commit-config.yaml
