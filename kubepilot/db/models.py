@@ -17,6 +17,12 @@ class Cluster(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # awaiting_agent → connected when the in-cluster agent checks in (or dev simulation).
+    registration_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="awaiting_agent", server_default="awaiting_agent"
+    )
+    # Optional JSON: aws account, region, IRSA role, scope, notes, helm command snapshot, etc.
+    onboarding_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     # Dev/local only unless encrypted at rest; see KUBEPILOT_ALLOW_STORE_KUBECONFIG.
     kubeconfig_yaml: Mapped[str | None] = mapped_column(Text, nullable=True)
 

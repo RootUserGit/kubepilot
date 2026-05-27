@@ -1,7 +1,7 @@
 # KubePilot — convenience targets. Requires Python 3.12+ venv with `pip install -e ".[dev]"`.
 # Load env: `set -a && source .env && set -a` (after copying env.example → .env)
 
-.PHONY: deps up down logs migrate api worker install
+.PHONY: deps up down logs migrate api worker install web web-build
 
 install:
 	python -m pip install --upgrade pip
@@ -27,3 +27,9 @@ api:
 
 worker:
 	python -m arq kubepilot.worker.worker.WorkerSettings
+
+web:
+	cd frontend && npm run dev
+
+web-build:
+	cd frontend && npm run build

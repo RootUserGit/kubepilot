@@ -1,4 +1,4 @@
-"""Format the human-readable investigation reply shown in the API and console."""
+"""Format the human-readable investigation reply shown in the API and dashboard."""
 
 from __future__ import annotations
 

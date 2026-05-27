@@ -6,14 +6,20 @@ info:
 servers:
   - url: http://localhost:8000
 paths:
-  /health:
+  /v1/healthcheck:
     get:
-      operationId: getHealth
+      operationId: getHealthcheck
       summary: Liveness / readiness
       tags: [System]
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Postgres or Redis unavailable
           content:
             application/json:
               schema:

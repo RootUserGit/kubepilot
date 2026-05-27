@@ -1,6 +1,6 @@
 # KubePilot
 
-Read-only **decision support for Kubernetes on AWS**: cluster context, analysis runs, and a small web console. The code does not mutate your cluster or cloud accounts in Phase 1.
+Read-only **decision support for Kubernetes on AWS**: cluster context, analysis runs, and a Next.js dashboard. The code does not mutate your cluster or cloud accounts in Phase 1.
 
 ## What it is made of
 
@@ -24,7 +24,7 @@ From the repo root:
 docker compose up -d --build
 ```
 
-Then open [http://localhost:8000/console](http://localhost:8000/console).
+Then open the API index at [http://localhost:8000/v1](http://localhost:8000/v1) and the UI at [http://localhost:3000](http://localhost:3000) (run `make web` or `./scripts/dev.sh web` for the frontend).
 
 **Option B — Postgres and Redis in Docker, app on your laptop**
 
@@ -58,6 +58,66 @@ python -m arq kubepilot.worker.worker.WorkerSettings
 ```
 
 The same flows are available as `make deps`, `make install`, `make migrate`, `make api`, and `make worker` once your venv and `.env` are set.
+
+**Windows (no `make`)** — use the dev scripts instead:
+
+```bash
+./scripts/dev.sh install
+./scripts/dev.sh deps
+./scripts/dev.sh migrate
+./scripts/dev.sh api    # terminal 1
+./scripts/dev.sh web    # terminal 2 → http://localhost:3000
+```
+
+In CMD: `scripts\dev.bat install`, then `scripts\dev.bat deps`, etc.
+
+## Frontend (Next.js)
+
+Phase 1 logged-out pages live in **`frontend/`**:
+
+- [http://localhost:3000](http://localhost:3000) — landing
+- [http://localhost:3000/features](http://localhost:3000/features)
+- [http://localhost:3000/onboarding](http://localhost:3000/onboarding)
+- [http://localhost:3000/login](http://localhost:3000/login)
+
+Copy `frontend/.env.local.example` → `frontend/.env.local` (API defaults to `http://localhost:8000`).
+
+## Google Sign-In (local dev)
+
+1. In [Google Cloud Console](https://console.cloud.google.com/) create an **OAuth 2.0 Client ID** (type **Web application**).
+2. Set:
+   - **Authorized JavaScript origins:** `http://localhost:3000` — where the Next.js app runs (used if you add browser-based Google widgets later).
+   - **Authorized redirect URIs:** `http://localhost:8000/v1/auth/sso/google/callback` — where Google sends the user after login (FastAPI, not Next.js).
+3. Copy **Client ID** and **Client secret** into the repo root `.env` (all **required** — the API exits on startup if any are missing):
+   - `KUBEPILOT_GOOGLE_CLIENT_ID=...`
+   - `KUBEPILOT_GOOGLE_CLIENT_SECRET=...`
+   - `KUBEPILOT_AUTH_SESSION_SECRET=` at least 32 characters (`openssl rand -hex 32`)
+4. Restart the API. If configuration is wrong, the process fails immediately with a clear log message. On the login page, use **Sign in with Google**.
+
+Flow: Next.js → API starts OAuth → Google → API callback → short-lived code → Next.js `/login` exchanges code for a session token.
+
+## API documentation (Swagger)
+
+When `KUBEPILOT_ENVIRONMENT` is **not** `production` (default: `development`):
+
+| URL | Description |
+|-----|-------------|
+| [http://localhost:8000/v1/docs](http://localhost:8000/v1/docs) | Swagger UI (interactive) |
+| [http://localhost:8000/v1/redoc](http://localhost:8000/v1/redoc) | ReDoc |
+| [http://localhost:8000/v1/openapi.json](http://localhost:8000/v1/openapi.json) | OpenAPI 3 schema |
+
+Set `KUBEPILOT_ENVIRONMENT=production` in production deployments to disable these endpoints.
+
+## Health checks (unauthenticated)
+
+| Service | URL | Success |
+|---------|-----|---------|
+| API | `GET http://localhost:8000/v1/healthcheck` | **200** when Postgres + Redis are up; **503** if either fails |
+| Frontend | `GET http://localhost:3000/healthcheck` | **200** when Next.js is running |
+
+## Auth note
+
+Sign-in uses **Google OAuth** and an **HttpOnly session cookie** on the API host (`credentials: "include"` from the Next.js app). Sessions expire after idle timeout or absolute max age; see `KUBEPILOT_AUTH_SESSION_IDLE_SECONDS` and `KUBEPILOT_AUTH_COOKIE_MAX_AGE_SECONDS` in `env.example`.
 
 ## License
 
