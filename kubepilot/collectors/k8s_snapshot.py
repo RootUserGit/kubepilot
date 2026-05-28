@@ -103,6 +103,32 @@ def collect_snapshot(
     else:
         ns_allow = None
 
+    rs_to_deployment: dict[tuple[str, str], tuple[str, str]] = {}
+    for rs in apps.list_replica_set_for_all_namespaces(watch=False).items:
+        if ns_allow is not None and rs.metadata.namespace not in ns_allow:
+            continue
+        for owner in rs.metadata.owner_references or []:
+            if owner.kind == "Deployment" and owner.name:
+                rs_to_deployment[(rs.metadata.namespace, rs.metadata.name)] = (
+                    rs.metadata.namespace,
+                    owner.name,
+                )
+
+    def _pod_workload(pod: Any) -> dict[str, str]:
+        ns = pod.metadata.namespace or "default"
+        for ref in pod.metadata.owner_references or []:
+            if ref.kind == "ReplicaSet" and ref.name:
+                dep = rs_to_deployment.get((ns, ref.name))
+                if dep:
+                    return {"kind": "Deployment", "name": dep[1], "namespace": dep[0]}
+            if ref.kind == "StatefulSet" and ref.name:
+                return {"kind": "StatefulSet", "name": ref.name, "namespace": ns}
+            if ref.kind == "DaemonSet" and ref.name:
+                return {"kind": "DaemonSet", "name": ref.name, "namespace": ns}
+            if ref.kind == "Job" and ref.name:
+                return {"kind": "Job", "name": ref.name, "namespace": ns}
+        return {"kind": "Pod", "name": pod.metadata.name or "unknown", "namespace": ns}
+
     snapshot: dict[str, Any] = {
         "pods": [],
         "deployments": [],
@@ -151,6 +177,7 @@ def collect_snapshot(
             {
                 "name": pod.metadata.name,
                 "namespace": pod.metadata.namespace,
+                "workload": _pod_workload(pod),
                 "containers": containers_out,
             }
         )
