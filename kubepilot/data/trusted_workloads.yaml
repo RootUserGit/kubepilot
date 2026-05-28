@@ -1,0 +1,67 @@
+# Trusted Kubernetes system workloads — expected security posture exceptions.
+# See kubepilot/core/finding_exceptions.py and docs/SEVERITY_AND_HEALTH.md
+
+rules:
+  - namespace: kube-system
+    resource_kind: DaemonSet
+    resource_name: kube-proxy
+    check_id: privileged
+    disposition: accepted_system_requirement
+    effective_severity: info
+    suppression_reason: >-
+      kube-proxy requires elevated privileges to manage iptables/NAT and node networking.
+      Disabling privileged mode breaks NodePort and service routing.
+    references:
+      - title: Kubernetes kube-proxy
+        url: https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/
+      - title: NSA/CISA Kubernetes Hardening Guidance
+        url: https://media.defense.gov/2022/Aug/29/2003063602/-1/-1/0/KUBERNETES_HARDENING_GUIDANCE.PDF
+
+  - namespace: kube-system
+    resource_kind: DaemonSet
+    resource_name: calico-node
+    check_id: privileged
+    disposition: accepted_system_requirement
+    effective_severity: info
+    suppression_reason: CNI node agents often require privileged mode for network programming.
+
+  - namespace: kube-system
+    resource_kind: DaemonSet
+    resource_name: cilium
+    check_id: privileged
+    disposition: accepted_system_requirement
+    effective_severity: info
+    suppression_reason: Cilium agent requires elevated privileges for eBPF and networking.
+
+  - namespace: kube-system
+    resource_kind: DaemonSet
+    resource_name: aws-node
+    check_id: privileged
+    disposition: accepted_system_requirement
+    effective_severity: info
+    suppression_reason: AWS VPC CNI node plugin requires host networking privileges.
+
+  - namespace: kube-system
+    resource_kind: DaemonSet
+    resource_name: kindnet
+    check_id: privileged
+    disposition: accepted_system_requirement
+    effective_severity: info
+    suppression_reason: kindnet CNI requires privileged networking on kind/minikube nodes.
+
+  - namespace: kube-system
+    resource_kind: DaemonSet
+    resource_name: kube-flannel-ds
+    check_id: privileged
+    disposition: accepted_system_requirement
+    effective_severity: info
+    suppression_reason: Flannel node agent may require privileged mode for tunnel interfaces.
+    resource_name_match: prefix
+
+  - namespace: kube-system
+    resource_kind: Deployment
+    resource_name: coredns
+    check_id: run_as_root
+    disposition: accepted_system_requirement
+    effective_severity: low
+    suppression_reason: CoreDNS images may run as root in default manifests; review against your PSS policy.

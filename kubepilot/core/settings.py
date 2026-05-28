@@ -30,6 +30,8 @@ class Settings(BaseSettings):
 
     llm_endpoint: str | None = None
     llm_enabled: bool = False
+    # OpenAI-compatible model id (Ollama: e.g. llama3.2:3b; vLLM: match --served-model-name).
+    llm_model: str = "local"
 
     kube_config_path: str | None = None
     analysis_job_timeout_s: int = 3600
@@ -69,6 +71,17 @@ class Settings(BaseSettings):
     auth_session_sliding: bool = True
     # Log out if no activity for this long (enforced server-side on verify).
     auth_session_idle_seconds: int = 60 * 60 * 4
+
+    # AWS onboarding (cross-account AssumeRole + CloudFormation quick-create).
+    # KubePilot control-plane account — embedded in CloudFormation trust policy.
+    aws_onboarding_account_id: str = "787943461725"
+    # Optional: specific IAM role/user ARN in the KubePilot account (for docs / future tightening).
+    aws_onboarding_principal_arn: str | None = None
+    # Public HTTPS S3 URL to kubepilot-readonly-role.yaml (same region as stack).
+    cloudformation_template_url: str | None = None
+
+    # Fernet key for encrypting AWS profile credentials at rest (openssl rand -hex 32).
+    credentials_encryption_key: str | None = None
 
 def get_settings() -> Settings:
     return Settings()
