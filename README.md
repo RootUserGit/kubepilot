@@ -82,6 +82,16 @@ Phase 1 logged-out pages live in **`frontend/`**:
 
 Copy `frontend/.env.local.example` → `frontend/.env.local` (API defaults to `http://localhost:8000`).
 
+## Register a cluster (dashboard)
+
+After sign-in, open **Clusters → Register Cluster**:
+
+1. **Platform** — Local (kubeconfig), AWS (saved profiles or one-time keys/role), Azure/GCP coming soon.
+2. **Local** — cluster name + kubeconfig YAML (recommended when API runs in Docker).
+3. **AWS** — create an encrypted IAM user or IAM role profile (trust account `787943461725`), verify with `eks:DescribeCluster`, then install the read-only Helm agent.
+
+Set `KUBEPILOT_CREDENTIALS_ENCRYPTION_KEY` in `.env` to save AWS access-key profiles (`openssl rand -hex 32`).
+
 ## Google Sign-In (local dev)
 
 1. In [Google Cloud Console](https://console.cloud.google.com/) create an **OAuth 2.0 Client ID** (type **Web application**).
@@ -118,6 +128,42 @@ Set `KUBEPILOT_ENVIRONMENT=production` in production deployments to disable thes
 ## Auth note
 
 Sign-in uses **Google OAuth** and an **HttpOnly session cookie** on the API host (`credentials: "include"` from the Next.js app). Sessions expire after idle timeout or absolute max age; see `KUBEPILOT_AUTH_SESSION_IDLE_SECONDS` and `KUBEPILOT_AUTH_COOKIE_MAX_AGE_SECONDS` in `env.example`.
+
+## LLM (local dev — Ollama)
+
+Finding remediation and explain/triage can call a **separate** OpenAI-compatible inference server. KubePilot does **not** apply changes; it returns read-only steps and `kubectl` commands for you to run.
+
+**1. Install Ollama and pull a model**
+
+```bash
+brew install ollama
+ollama serve          # or use the Ollama app
+ollama pull llama3.2:3b
+```
+
+**2. Smoke-test the inference server**
+
+```bash
+curl -s http://127.0.0.1:11434/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"Reply with JSON: {\"ok\": true}"}]}'
+```
+
+**3. Enable in repo root `.env`**
+
+```bash
+KUBEPILOT_LLM_ENABLED=true
+KUBEPILOT_LLM_ENDPOINT=http://127.0.0.1:11434
+KUBEPILOT_LLM_MODEL=llama3.2:3b
+```
+
+Do **not** set `KUBEPILOT_LLM_ENDPOINT` to the KubePilot API (`http://127.0.0.1:8000`).
+
+**4. Restart the API**, scan a cluster, open **AI Insights** → a finding. The remediation panel shows numbered steps, impact, and copyable commands. Expand **How this was produced** for LLM notes.
+
+Optional: `ollama cp llama3.2:3b local` if you prefer model name `local` (default in older configs).
+
+**Production:** point `KUBEPILOT_LLM_ENDPOINT` at vLLM/TGI or a Bedrock/OpenAI proxy in your VPC (see `ai/README.md`). Set `KUBEPILOT_LLM_ENABLED=false` when you do not need AI features.
 
 ## License
 
