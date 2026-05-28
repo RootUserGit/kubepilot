@@ -1,5 +1,6 @@
-import { AlertsPage } from "@/components/dashboard/pages/AlertsPage";
+import { redirect } from "next/navigation";
 
-export default function AlertsRoute() {
-  return <AlertsPage />;
+/** Alerts merged into AI Insights. */
+export default function AlertsRedirect() {
+  redirect("/dashboard/ai-insights");
 }

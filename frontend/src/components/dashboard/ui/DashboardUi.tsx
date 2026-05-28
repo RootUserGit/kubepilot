@@ -27,6 +27,8 @@ export function KpiCard({
   subClassName = "text-kp-muted",
   icon: Icon,
   iconClassName = "text-kp-muted",
+  onClick,
+  selected = false,
 }: {
   label: string;
   value: string;
@@ -35,17 +37,33 @@ export function KpiCard({
   subClassName?: string;
   icon?: LucideIcon;
   iconClassName?: string;
+  onClick?: () => void;
+  selected?: boolean;
 }) {
-  return (
-    <div className="rounded-xl border border-kp-border bg-kp-surface/40 p-4">
+  const className = `rounded-xl border bg-kp-surface/40 p-4 text-left transition-colors ${
+    selected ? "border-kp-blue ring-2 ring-kp-blue/30" : "border-kp-border"
+  } ${onClick ? "cursor-pointer hover:border-kp-blue/50 hover:bg-kp-surface/60" : ""}`;
+
+  const inner = (
+    <>
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs text-kp-muted">{label}</p>
         {Icon && <Icon className={`h-4 w-4 shrink-0 ${iconClassName}`} />}
       </div>
       <p className={`mt-2 text-xl font-bold sm:text-2xl ${valueClassName}`}>{value}</p>
       {sub && <p className={`mt-0.5 text-xs ${subClassName}`}>{sub}</p>}
-    </div>
+    </>
   );
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`w-full ${className}`}>
+        {inner}
+      </button>
+    );
+  }
+
+  return <div className={className}>{inner}</div>;
 }
 
 export function FilterPills({
@@ -64,10 +82,10 @@ export function FilterPills({
           key={item.id}
           type="button"
           onClick={() => onChange(item.id)}
-          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+          className={`rounded-full border px-3 py-1 text-xs font-medium transition-all duration-150 ${
             active === item.id
-              ? "border-kp-blue bg-kp-blue/15 text-kp-text"
-              : "border-kp-border text-kp-muted hover:border-kp-blue/40 hover:text-kp-text"
+              ? "border-kp-blue bg-kp-blue/15 text-kp-text shadow-sm shadow-kp-blue/10"
+              : "border-kp-border text-kp-muted hover:border-kp-blue/40 hover:bg-kp-surface/60 hover:text-kp-text"
           }`}
         >
           {item.label}
@@ -79,13 +97,15 @@ export function FilterPills({
 
 export function SeverityBadge({
   severity,
+  label,
 }: {
   severity: "critical" | "high" | "warning" | "medium" | "info" | "healthy";
+  label?: string;
 }) {
   const styles = {
     critical: "bg-red-500/15 text-red-800 dark:text-red-300 border-red-500/30",
-    high: "kp-badge-warning border-amber-500/30",
-    warning: "kp-badge-warning border-amber-500/30",
+    high: "bg-amber-500/15 text-amber-200 border-amber-500/35",
+    warning: "bg-amber-500/15 text-amber-200 border-amber-500/35",
     medium: "bg-yellow-500/15 text-yellow-800 dark:text-yellow-200 border-yellow-500/30",
     info: "bg-kp-blue/15 text-kp-blue-glow border-kp-blue/30",
     healthy: "bg-kp-green/15 text-kp-green border-kp-green/30",
@@ -94,7 +114,7 @@ export function SeverityBadge({
     <span
       className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${styles[severity]}`}
     >
-      {severity}
+      {label ?? severity}
     </span>
   );
 }
@@ -136,7 +156,7 @@ export function DataTable({
 
 export function Panel({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <section className="rounded-xl border border-kp-border bg-kp-surface/40 p-4 sm:p-5">
+    <section className="rounded-xl border border-kp-border bg-kp-surface/40 p-4 transition-colors duration-150 hover:border-kp-border/80 sm:p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-semibold text-kp-text">{title}</h2>
         {action}

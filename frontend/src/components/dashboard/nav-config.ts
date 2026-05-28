@@ -5,7 +5,7 @@ export const PAGE_META: Record<string, { title: string; subtitle?: string }> = {
   },
   "/dashboard/clusters": {
     title: "Clusters",
-    subtitle: "12 total clusters",
+    subtitle: "Health, status, and inventory across environments",
   },
   "/dashboard/clusters/register": {
     title: "Register Cluster",
@@ -31,10 +31,6 @@ export const PAGE_META: Record<string, { title: string; subtitle?: string }> = {
     title: "Reports",
     subtitle: "Generate and manage reports",
   },
-  "/dashboard/alerts": {
-    title: "Alerts",
-    subtitle: "Monitor and manage alerts",
-  },
   "/dashboard/integrations": {
     title: "Integrations",
     subtitle: "Manage your integrations",
@@ -55,9 +51,10 @@ export function resolvePageMeta(pathname: string) {
   }
   if (pathname.startsWith("/dashboard/clusters/")) {
     const slug = pathname.split("/").pop() ?? "cluster";
+    const isClusterId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug);
     return {
-      title: slug,
-      subtitle: "AWS EKS · Production · read-only cockpit",
+      title: isClusterId ? "Cluster details" : slug,
+      subtitle: "Live inventory and workload insights",
     };
   }
   return PAGE_META[pathname] ?? { title: "KubePilot", subtitle: undefined };
@@ -87,12 +84,6 @@ export const NAV_ITEMS = [
     match: (p: string) => p === "/dashboard/governance",
   },
   { href: "/dashboard/reports", label: "Reports", match: (p: string) => p === "/dashboard/reports" },
-  {
-    href: "/dashboard/alerts",
-    label: "Alerts",
-    match: (p: string) => p === "/dashboard/alerts",
-    badge: 4,
-  },
   {
     href: "/dashboard/integrations",
     label: "Integrations",

@@ -1,7 +1,7 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   Bot,
@@ -18,6 +18,10 @@ import {
 import { LogoLink } from "@/components/layout/LogoLink";
 import { NotificationsBell } from "@/components/dashboard/NotificationsBell";
 import { UserMenu, SidebarUserFooter } from "@/components/dashboard/UserMenu";
+import {
+  DashboardMetaContext,
+  type DashboardPageMeta,
+} from "@/components/dashboard/DashboardMetaContext";
 import { NAV_ITEMS, resolvePageMeta } from "@/components/dashboard/nav-config";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
@@ -36,6 +40,8 @@ const ICONS = {
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const hasQuery = searchParams.toString().length > 0;
 
   return (
     <nav className="space-y-0.5" aria-label="Dashboard">
@@ -48,7 +54,9 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
             type="button"
             onClick={() => {
               onNavigate?.();
-              if (!active) router.push(item.href);
+              if (!item.match(pathname) || (pathname === item.href && hasQuery)) {
+                router.push(item.href);
+              }
             }}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
               active
@@ -100,7 +108,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-3">
-        <SidebarNav onNavigate={onNavigate} />
+        <Suspense fallback={<div className="h-8 animate-pulse rounded bg-kp-surface/50" />}>
+          <SidebarNav onNavigate={onNavigate} />
+        </Suspense>
       </div>
       <div className="shrink-0 border-t border-kp-border/50 bg-kp-bg-deep pt-1">
         <AiAssistantWidget />
@@ -115,7 +125,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, loading } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const meta = resolvePageMeta(pathname);
+  const [pageMetaOverride, setPageMetaOverride] = useState<DashboardPageMeta | null>(null);
+  const baseMeta = useMemo(() => resolvePageMeta(pathname), [pathname]);
+  const meta = pageMetaOverride ?? baseMeta;
+
+  useEffect(() => {
+    setPageMetaOverride(null);
+  }, [pathname]);
 
   useEffect(() => {
     if (loading) return;
@@ -204,7 +220,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
-          {children}
+          <DashboardMetaContext.Provider value={setPageMetaOverride}>
+            {children}
+          </DashboardMetaContext.Provider>
         </main>
       </div>
     </div>
