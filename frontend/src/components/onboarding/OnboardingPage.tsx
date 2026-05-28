@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, CheckCircle2, Radio, Users } from "lucide-react";
+import { Check, CheckCircle2, Radio, ShieldCheck, Users } from "lucide-react";
 import { CodeTerminal } from "@/components/ui/CodeTerminal";
 import { PublicPageHeader } from "@/components/layout/PublicPageHeader";
 
@@ -34,6 +34,27 @@ export function OnboardingPage() {
           title="Cluster & Namespace Onboarding Guide"
           description="Follow these steps to onboard your EKS cluster or namespace into KubePilot with a read-only agent."
         />
+
+        <div className="mb-8 rounded-xl border border-kp-blue/30 bg-kp-blue/10 p-5 sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <ShieldCheck className="mt-0.5 h-6 w-6 shrink-0 text-kp-blue-glow" />
+              <div>
+                <h2 className="font-semibold text-kp-text">AWS EKS onboarding wizard</h2>
+                <p className="mt-1 text-sm text-kp-muted">
+                  Connect via IAM Role (recommended) or IAM User, verify with{" "}
+                  <code className="kp-inline-code">eks:DescribeCluster</code>, then install the agent.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/dashboard/clusters/register"
+              className="inline-flex shrink-0 items-center justify-center rounded-lg bg-kp-blue px-4 py-2.5 text-sm font-medium text-white hover:bg-kp-blue/90"
+            >
+              Start AWS onboarding
+            </Link>
+          </div>
+        </div>
 
         <div className="space-y-8">
           <StepCard

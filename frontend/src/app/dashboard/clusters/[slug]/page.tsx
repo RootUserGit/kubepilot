@@ -2,7 +2,8 @@ import { ClusterDetailPage } from "@/components/dashboard/pages/ClusterDetailPag
 
 type Props = { params: Promise<{ slug: string }> };
 
+/** Route segment is cluster UUID (`/dashboard/clusters/{id}`). */
 export default async function ClusterDetailRoute({ params }: Props) {
-  const { slug } = await params;
-  return <ClusterDetailPage slug={slug} />;
+  const { slug: clusterId } = await params;
+  return <ClusterDetailPage clusterId={clusterId} />;
 }

@@ -1,13 +1,7 @@
 import { AlertTriangle, ArrowUpRight, DollarSign, Server, ShieldCheck, TrendingUp } from "lucide-react";
+import { ClusterSummaryTable, TotalClustersKpi } from "@/components/dashboard/ClusterSummaryTable";
 
 const kpis = [
-  {
-    label: "Total Clusters",
-    value: "12",
-    sub: "+2 this month",
-    subColor: "text-kp-green",
-    icon: Server,
-  },
   {
     label: "Healthy Nodes",
     value: "94%",
@@ -32,17 +26,11 @@ const kpis = [
   },
 ];
 
-const clusters = [
-  { name: "prod-eks", health: "healthy", nodes: "128/128", workloads: 342, alerts: 1 },
-  { name: "staging-k8s", health: "warning", nodes: "24/24", workloads: 89, alerts: 2 },
-  { name: "dev-cluster", health: "critical", nodes: "8/8", workloads: 45, alerts: 3 },
-  { name: "qa-eks", health: "healthy", nodes: "16/16", workloads: 67, alerts: 0 },
-];
-
 export function DashboardOverview() {
   return (
     <div className="space-y-4 p-4 sm:space-y-6 sm:p-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <TotalClustersKpi />
         {kpis.map((kpi) => (
           <div
             key={kpi.label}
@@ -73,30 +61,7 @@ export function DashboardOverview() {
           </div>
 
           <div className="mt-6 overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="text-kp-muted">
-                <tr>
-                  <th className="pb-2 font-medium">Cluster</th>
-                  <th className="pb-2 font-medium">Health</th>
-                  <th className="pb-2 font-medium">Nodes</th>
-                  <th className="pb-2 font-medium">Workloads</th>
-                  <th className="pb-2 font-medium">Alerts</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clusters.map((c) => (
-                  <tr key={c.name} className="border-t border-kp-border/60">
-                    <td className="py-2 font-medium text-kp-text">{c.name}</td>
-                    <td className="py-2">
-                      <HealthPill health={c.health} />
-                    </td>
-                    <td className="py-2 text-kp-muted">{c.nodes}</td>
-                    <td className="py-2 text-kp-muted">{c.workloads}</td>
-                    <td className="py-2 text-kp-muted">{c.alerts}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <ClusterSummaryTable />
           </div>
         </section>
 
