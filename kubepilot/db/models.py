@@ -4,11 +4,40 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    ForeignKey,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from kubepilot.db.base import Base
+
+
+class AwsConnectionProfile(Base):
+    __tablename__ = "aws_connection_profiles"
+    __table_args__ = (
+        UniqueConstraint("user_email", "profile_name", name="uq_aws_profile_user_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
+    profile_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    connection_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    aws_account_id: Mapped[str] = mapped_column(String(12), nullable=False)
+    default_region: Mapped[str] = mapped_column(String(64), nullable=False)
+    role_arn: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    credentials_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    access_key_last4: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Cluster(Base):

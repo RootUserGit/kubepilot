@@ -92,6 +92,24 @@ paths:
                 $ref: "#/components/schemas/RecommendationList"
         "404":
           description: Not found
+  /v1/onboarding/external-id:
+    get:
+      operationId: getOnboardingExternalId
+      summary: Generate External ID for IAM role onboarding
+      tags: [Onboarding]
+      responses:
+        "200":
+          description: OK
+  /v1/onboarding/verify-aws:
+    post:
+      operationId: verifyAwsOnboarding
+      summary: Verify AWS credentials or assumed role via eks:DescribeCluster
+      tags: [Onboarding]
+      responses:
+        "200":
+          description: Cluster reachable
+        "400":
+          description: AWS authorization or validation error
   /v1/recommendations:
     get:
       operationId: listRecommendations
