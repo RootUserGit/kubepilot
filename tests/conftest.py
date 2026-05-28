@@ -11,3 +11,7 @@ os.environ.setdefault(
     "KUBEPILOT_AUTH_SESSION_SECRET",
     "test-session-secret-at-least-32-characters-long",
 )
+os.environ.setdefault(
+    "KUBEPILOT_CREDENTIALS_ENCRYPTION_KEY",
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+)
