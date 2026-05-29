@@ -1,0 +1,287 @@
+openapi: 3.1.0
+info:
+  title: KubePilot API
+  version: 0.1.0
+  description: Read-only cluster intelligence control plane (Phase 1).
+servers:
+  - url: http://localhost:8000
+paths:
+  /v1/healthcheck:
+    get:
+      operationId: getHealthcheck
+      summary: Liveness / readiness
+      tags: [System]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Postgres or Redis unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /v1/analysis-runs:
+    post:
+      operationId: createAnalysisRun
+      summary: Queue an analysis run
+      tags: [AnalysisRuns]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalysisRunCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisRun"
+        "422":
+          description: Validation error
+  /v1/analysis-runs/{analysis_run_id}:
+    get:
+      operationId: getAnalysisRun
+      summary: Get analysis run status and results
+      tags: [AnalysisRuns]
+      parameters:
+        - name: analysis_run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisRun"
+        "404":
+          description: Not found
+  /v1/analysis-runs/{analysis_run_id}/recommendations:
+    get:
+      operationId: listAnalysisRunRecommendations
+      summary: Recommendations produced by a specific analysis run
+      tags: [AnalysisRuns]
+      parameters:
+        - name: analysis_run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationList"
+        "404":
+          description: Not found
+  /v1/onboarding/external-id:
+    get:
+      operationId: getOnboardingExternalId
+      summary: Generate External ID for IAM role onboarding
+      tags: [Onboarding]
+      responses:
+        "200":
+          description: OK
+  /v1/onboarding/verify-aws:
+    post:
+      operationId: verifyAwsOnboarding
+      summary: Verify AWS credentials or assumed role via eks:DescribeCluster
+      tags: [Onboarding]
+      responses:
+        "200":
+          description: Cluster reachable
+        "400":
+          description: AWS authorization or validation error
+  /v1/recommendations:
+    get:
+      operationId: listRecommendations
+      summary: List recommendations (paginated stub)
+      tags: [Recommendations]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationList"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    AnalysisRunCreate:
+      type: object
+      required: [time_range_start, time_range_end]
+      properties:
+        cluster_id:
+          type: string
+          format: uuid
+          nullable: true
+        scope_namespace:
+          type: string
+          nullable: true
+          description: Single namespace (legacy); ignored if scope_namespaces is set.
+        scope_namespaces:
+          type: array
+          nullable: true
+          description: One or more namespaces to scan together (workloads, scoped metrics/logs). Omit with scope_namespace for cluster-wide scan.
+          items:
+            type: string
+        scope_label_selector:
+          type: string
+          nullable: true
+        time_range_start:
+          type: string
+          format: date-time
+        time_range_end:
+          type: string
+          format: date-time
+        question:
+          type: string
+          nullable: true
+          description: Optional natural-language question for investigations.
+    AnalysisRunStatus:
+      type: string
+      enum: [pending, running, completed, failed]
+    AnalysisRun:
+      type: object
+      required: [id, status, time_range_start, time_range_end, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        cluster_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          $ref: "#/components/schemas/AnalysisRunStatus"
+        scope_namespace:
+          type: string
+          nullable: true
+        scope_namespaces:
+          type: array
+          nullable: true
+          items:
+            type: string
+        scope_label_selector:
+          type: string
+          nullable: true
+        time_range_start:
+          type: string
+          format: date-time
+        time_range_end:
+          type: string
+          format: date-time
+        question:
+          type: string
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        recommendation_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        investigation_answer:
+          type: string
+          nullable: true
+          description: Formatted reply to the investigation question (restart counts, audit context, optional LLM prose).
+    RecommendationCategory:
+      type: string
+      enum: [reliability, cost, security, scaling]
+    RecommendationSeverity:
+      type: string
+      enum: [info, low, medium, high, critical]
+    EvidenceRef:
+      type: object
+      required: [id, kind]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          description: e.g. k8s_snapshot, opensearch_query, cloudwatch_query
+        label:
+          type: string
+          nullable: true
+    Recommendation:
+      type: object
+      required: [id, category, severity, title, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        analysis_run_id:
+          type: string
+          format: uuid
+          nullable: true
+        category:
+          $ref: "#/components/schemas/RecommendationCategory"
+        severity:
+          $ref: "#/components/schemas/RecommendationSeverity"
+        title:
+          type: string
+        detail:
+          type: string
+          nullable: true
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        created_at:
+          type: string
+          format: date-time
+    RecommendationList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recommendation"
+        total:
+          type: integer

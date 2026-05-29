@@ -1,0 +1,246 @@
+@import "tailwindcss";
+
+/*
+ * Theme tokens: use html.dark / html.light only (not :root alone).
+ * Terminal/code blocks use .kp-terminal* — fixed palette, never inherits kp-text.
+ */
+html.dark {
+  --kp-bg: #0b0f19;
+  --kp-bg-deep: #070b14;
+  --kp-surface: #111827;
+  --kp-surface-elevated: #1a2234;
+  --kp-border: #1f2937;
+  --kp-blue: #0052ff;
+  --kp-blue-glow: #1e90ff;
+  --kp-green: #10b981;
+  --kp-purple: #8b5cf6;
+  --kp-text: #f9fafb;
+  --kp-muted: #9ca3af;
+  --kp-warning: #fbbf24;
+  --kp-warning-bg: rgba(251, 191, 36, 0.12);
+}
+
+html.light {
+  --kp-bg: #f0f4f8;
+  --kp-bg-deep: #ffffff;
+  --kp-surface: #ffffff;
+  --kp-surface-elevated: #f8fafc;
+  --kp-border: #e2e8f0;
+  --kp-blue: #0052ff;
+  --kp-blue-glow: #1d4ed8;
+  --kp-green: #059669;
+  --kp-purple: #7c3aed;
+  --kp-text: #0f172a;
+  --kp-muted: #475569;
+  --kp-warning: #b45309;
+  --kp-warning-bg: rgba(180, 83, 9, 0.1);
+}
+
+html:not(.light):not(.dark) {
+  --kp-bg: #0b0f19;
+  --kp-bg-deep: #070b14;
+  --kp-surface: #111827;
+  --kp-surface-elevated: #1a2234;
+  --kp-border: #1f2937;
+  --kp-blue: #0052ff;
+  --kp-blue-glow: #1e90ff;
+  --kp-green: #10b981;
+  --kp-purple: #8b5cf6;
+  --kp-text: #f9fafb;
+  --kp-muted: #9ca3af;
+  --kp-warning: #fbbf24;
+  --kp-warning-bg: rgba(251, 191, 36, 0.12);
+}
+
+@theme inline {
+  --color-kp-bg: var(--kp-bg);
+  --color-kp-bg-deep: var(--kp-bg-deep);
+  --color-kp-surface: var(--kp-surface);
+  --color-kp-surface-elevated: var(--kp-surface-elevated);
+  --color-kp-border: var(--kp-border);
+  --color-kp-blue: var(--kp-blue);
+  --color-kp-blue-glow: var(--kp-blue-glow);
+  --color-kp-green: var(--kp-green);
+  --color-kp-purple: var(--kp-purple);
+  --color-kp-text: var(--kp-text);
+  --color-kp-muted: var(--kp-muted);
+  --color-kp-warning: var(--kp-warning);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html.light {
+  color-scheme: light;
+}
+
+body {
+  background: var(--kp-bg);
+  color: var(--kp-text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Typography */
+.kp-page-title {
+  font-size: clamp(1.875rem, 4vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--kp-text);
+}
+
+.kp-page-lead {
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: var(--kp-muted);
+}
+
+.kp-section-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--kp-text);
+}
+
+/* Inline code */
+.kp-inline-code {
+  border-radius: 0.375rem;
+  background: var(--kp-surface-elevated);
+  border: 1px solid var(--kp-border);
+  padding: 0.125rem 0.375rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.8125em;
+  color: var(--kp-green);
+}
+
+html.light .kp-inline-code {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+/* Cards on public pages */
+.kp-card {
+  border-radius: 0.75rem;
+  border: 1px solid var(--kp-border);
+  background: color-mix(in srgb, var(--kp-surface) 88%, transparent);
+  padding: 1.5rem;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--kp-text) 4%, transparent),
+    0 4px 24px color-mix(in srgb, var(--kp-blue) 6%, transparent);
+}
+
+html.light .kp-card {
+  background: var(--kp-surface);
+  box-shadow:
+    0 1px 3px rgba(15, 23, 42, 0.06),
+    0 8px 32px rgba(0, 82, 255, 0.06);
+}
+
+/* Grid background */
+.kp-grid-bg {
+  background-color: var(--kp-bg);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--kp-blue) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--kp-blue) 5%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+html.light .kp-grid-bg {
+  background-image:
+    linear-gradient(rgba(0, 82, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 82, 255, 0.07) 1px, transparent 1px);
+}
+
+.kp-glow-blue {
+  box-shadow: 0 0 40px rgba(0, 82, 255, 0.15);
+}
+
+html.light .kp-glow-blue {
+  box-shadow: 0 4px 24px rgba(0, 82, 255, 0.12);
+}
+
+.kp-glow-green {
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.2);
+}
+
+/* Terminal — always dark panel (never use kp-text inside) */
+.kp-terminal {
+  background: #0d1117;
+  color: #e6edf3;
+}
+
+.kp-terminal-header {
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+}
+
+.kp-terminal-body {
+  background: #0d1117;
+  color: #e6edf3;
+}
+
+.kp-tok-keyword {
+  color: #7ee787;
+  font-weight: 600;
+}
+
+.kp-tok-command {
+  color: #e6edf3;
+}
+
+.kp-tok-flag {
+  color: #79c0ff;
+}
+
+.kp-tok-value {
+  color: #d2a8ff;
+}
+
+.kp-tok-muted {
+  color: #8b949e;
+}
+
+.kp-tok-default {
+  color: #e6edf3;
+}
+
+.kp-terminal-yaml {
+  color: #e6edf3;
+}
+
+.kp-terminal-yaml .yaml-key {
+  color: #79c0ff;
+}
+
+.kp-terminal-yaml .yaml-str {
+  color: #a5d6ff;
+}
+
+@keyframes pulse-ring {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+.kp-pulse {
+  animation: pulse-ring 2s ease-in-out infinite;
+}
+
+/* Semantic surfaces */
+.kp-badge-warning {
+  background: var(--kp-warning-bg);
+  color: var(--kp-warning);
+}
