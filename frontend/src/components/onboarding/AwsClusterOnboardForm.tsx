@@ -14,6 +14,12 @@ import {
 import { AwsEksOnboardingWizard, type AwsOnboardingValues } from "@/components/onboarding/AwsEksOnboardingWizard";
 import { PrimaryButton } from "@/components/dashboard/ui/DashboardUi";
 
+const IAM_ROLE_ARN_RE = /^arn:aws:iam::\d{12}:role\//;
+
+function looksLikeIamRoleArn(arn: string | null | undefined): boolean {
+  return typeof arn === "string" && IAM_ROLE_ARN_RE.test(arn.trim());
+}
+
 type Props = {
   profileId: string | null;
   oneTime: boolean;
@@ -51,7 +57,11 @@ export function AwsClusterOnboardForm({ profileId, oneTime, onBack, onRegistered
           setProfile(p);
           setSelectedProfileId(p.id);
           setRegion(p.default_region);
-          if (p.role_arn) setRoleArn(p.role_arn);
+          if (p.connection_type === "iam_role" && p.role_arn) {
+            setRoleArn(p.role_arn);
+          } else if (p.connection_type === "iam_user") {
+            setRoleArn(looksLikeIamRoleArn(p.role_arn) ? p.role_arn! : "");
+          }
         }
       }
     });
@@ -63,7 +73,11 @@ export function AwsClusterOnboardForm({ profileId, oneTime, onBack, onRegistered
     if (p) {
       setProfile(p);
       setRegion(p.default_region);
-      if (p.role_arn) setRoleArn(p.role_arn);
+      if (p.connection_type === "iam_role" && p.role_arn) {
+        setRoleArn(p.role_arn);
+      } else if (p.connection_type === "iam_user") {
+        setRoleArn(looksLikeIamRoleArn(p.role_arn) ? p.role_arn! : "");
+      }
     }
   }, [selectedProfileId, profiles]);
 
@@ -340,7 +354,11 @@ function RegisterFields({
         <input value={clusterName} onChange={(e) => setClusterName(e.target.value.toLowerCase())} className="w-full rounded-lg border border-kp-border bg-kp-bg-deep px-3 py-2.5 text-sm" />
       </label>
       <label className="block">
-        <span className="mb-1 text-xs text-kp-muted">Agent IRSA role ARN</span>
+        <span className="mb-1 block text-xs text-kp-muted">
+          Agent IRSA role ARN — IAM role the agent pod assumes via IRSA (format{" "}
+          <code className="rounded bg-kp-surface px-1 font-mono text-[10px]">arn:aws:iam::ACCOUNT:role/NAME</code>
+          ). Not an EKS cluster ARN.
+        </span>
         <input value={roleArn} onChange={(e) => setRoleArn(e.target.value)} className="w-full rounded-lg border border-kp-border bg-kp-bg-deep px-3 py-2.5 font-mono text-xs" />
       </label>
       <label className="block">

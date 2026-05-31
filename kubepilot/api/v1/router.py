@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import logging
+import secrets
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from kubepilot.api.deps import get_db
+from kubepilot.api.deps import get_db, require_session_user
 from kubepilot.api.healthcheck import run_health_checks
 from kubepilot.api.v1.helpers import (
     fetch_investigation_answer,
@@ -30,7 +32,11 @@ from kubepilot.core.cluster_scan_cache import (
     persist_scan_summary,
     resolve_cached_summary,
 )
-from kubepilot.core.cluster_onboarding import build_helm_install_command
+from kubepilot.core.agent_helm_chart_bundle import build_agent_chart_zip_bytes
+from kubepilot.core.cluster_onboarding import (
+    build_helm_install_command,
+    build_helm_install_command_from_local_chart_dir,
+)
 from kubepilot.core.environment import is_production_environment
 from kubepilot.core.namespaces_scope import resolve_scope_namespaces
 from kubepilot.core.schemas import (
@@ -52,10 +58,55 @@ from kubepilot.core.schemas import (
 )
 from kubepilot.core.settings import get_settings
 from kubepilot.db import models as m
+from kubepilot.db.tenancy import count_clusters_for_organization
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 router.include_router(onboarding_router)
 router.include_router(profiles_router)
+
+
+def _user_org_ids(user: dict) -> set[str]:
+    return set(user.get("organization_ids") or [])
+
+
+def _primary_organization_id(user: dict) -> UUID:
+    ids = sorted(_user_org_ids(user))
+    if not ids:
+        raise HTTPException(
+            status_code=403,
+            detail="No workspace found for this account. Sign out and sign in again.",
+        )
+    return UUID(ids[0])
+
+
+def _get_cluster_for_user(db: Session, cluster_id: UUID, user: dict) -> m.Cluster:
+    row = db.get(m.Cluster, cluster_id)
+    if row is None or str(row.organization_id) not in _user_org_ids(user):
+        raise HTTPException(status_code=404, detail="Cluster not found")
+    return row
+
+
+def _enforce_cluster_quota(db: Session, organization_id: UUID) -> None:
+    org = db.get(m.Organization, organization_id)
+    if org is None:
+        raise HTTPException(status_code=500, detail="Organization not found")
+    if count_clusters_for_organization(db, organization_id) >= org.max_clusters:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"Cluster limit reached for this workspace ({org.max_clusters}). "
+                "Remove a cluster or raise the workspace limit."
+            ),
+        )
+
+
+def _get_analysis_run_for_user(db: Session, analysis_run_id: UUID, user: dict) -> m.AnalysisRun:
+    run = db.get(m.AnalysisRun, analysis_run_id)
+    if run is None or str(run.owner_user_id) != user["user_id"]:
+        raise HTTPException(status_code=404, detail="not found")
+    return run
 
 
 def _cluster_to_public(row: m.Cluster) -> ClusterPublic:
@@ -147,7 +198,11 @@ async def healthcheck(request: Request, db: Session = Depends(get_db)) -> JSONRe
 
 
 @router.post("/clusters", response_model=ClusterPublic, status_code=201)
-def create_cluster(body: ClusterCreate, db: Session = Depends(get_db)) -> ClusterPublic:
+def create_cluster(
+    body: ClusterCreate,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
+) -> ClusterPublic:
     settings = get_settings()
     kube = (body.kubeconfig_yaml or "").strip() or None
     if kube and not settings.allow_store_kubeconfig:
@@ -155,6 +210,8 @@ def create_cluster(body: ClusterCreate, db: Session = Depends(get_db)) -> Cluste
             status_code=403,
             detail="Kubeconfig storage is disabled (KUBEPILOT_ALLOW_STORE_KUBECONFIG=false).",
         )
+    org_id = _primary_organization_id(user)
+    _enforce_cluster_quota(db, org_id)
     now = datetime.now(tz=UTC)
     meta: dict[str, object] = {"provider": "local"}
     if body.namespace_scope:
@@ -163,6 +220,8 @@ def create_cluster(body: ClusterCreate, db: Session = Depends(get_db)) -> Cluste
         meta["notes"] = body.notes.strip()
 
     row = m.Cluster(
+        organization_id=org_id,
+        owner_user_id=UUID(user["user_id"]),
         name=body.name.strip(),
         kubeconfig_yaml=kube,
         created_at=now,
@@ -175,15 +234,43 @@ def create_cluster(body: ClusterCreate, db: Session = Depends(get_db)) -> Cluste
     return _cluster_to_public(row)
 
 
+@router.get("/clusters/agent-helm-chart.zip")
+async def download_agent_helm_chart_zip(_user: dict = Depends(require_session_user)) -> Response:
+    """Offline Helm chart (zip contains ``kubepilot-agent/``). Requires a signed-in dashboard user."""
+    try:
+        data = build_agent_chart_zip_bytes()
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent Helm chart bundle is missing on this server. Install from a git checkout that includes charts/kubepilot-agent/.",
+        ) from e
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="kubepilot-agent-chart.zip"'},
+    )
+
+
 @router.post("/clusters/register", response_model=ClusterRegistrationResponse, status_code=201)
 def register_cluster(
     body: ClusterRegisterRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
 ) -> ClusterRegistrationResponse:
     settings = get_settings()
+    org_id = _primary_organization_id(user)
+    _enforce_cluster_quota(db, org_id)
     now = datetime.now(tz=UTC)
     helm = build_helm_install_command(
+        cluster_name=body.cluster_name,
+        aws_account_id=body.aws_account_id,
+        aws_region=body.aws_region,
+        environment=body.environment,
+        role_arn=body.role_arn,
+        repo_index_url=settings.helm_agent_repo_index_url,
+    )
+    helm_local = build_helm_install_command_from_local_chart_dir(
         cluster_name=body.cluster_name,
         aws_account_id=body.aws_account_id,
         aws_region=body.aws_region,
@@ -197,6 +284,7 @@ def register_cluster(
         "environment": body.environment,
         "role_arn": body.role_arn,
         "helm_install_command": helm,
+        "helm_install_local_command": helm_local,
     }
     if body.aws_profile_id is not None:
         meta["aws_profile_id"] = str(body.aws_profile_id)
@@ -208,6 +296,8 @@ def register_cluster(
         meta["notes"] = body.notes
 
     row = m.Cluster(
+        organization_id=org_id,
+        owner_user_id=UUID(user["user_id"]),
         name=body.cluster_name,
         kubeconfig_yaml=None,
         created_at=now,
@@ -219,7 +309,7 @@ def register_cluster(
     db.refresh(row)
 
     sim = settings.simulate_agent_connect_seconds
-    if sim is not None and sim > 0:
+    if sim is not None and sim > 0 and not is_production_environment(settings.environment):
         background_tasks.add_task(simulate_agent_connect_task, row.id, min(sim, 3600))
 
     return ClusterRegistrationResponse(
@@ -227,22 +317,26 @@ def register_cluster(
         name=row.name,
         registration_status=row.registration_status,
         helm_install_command=helm,
+        helm_install_local_command=helm_local,
         created_at=row.created_at,
     )
 
 
 @router.get("/clusters/{cluster_id}/registration-status", response_model=ClusterRegistrationStatusResponse)
 def cluster_registration_status(
-    cluster_id: UUID, db: Session = Depends(get_db)
+    cluster_id: UUID,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
 ) -> ClusterRegistrationStatusResponse:
-    row = db.get(m.Cluster, cluster_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Cluster not found")
+    settings = get_settings()
+    row = _get_cluster_for_user(db, cluster_id, user)
+    owner_check_in_available = not (settings.agent_service_token or "").strip()
     message: str | None = None
     if row.registration_status == "awaiting_agent":
         message = (
-            "Install the agent with Helm from a machine with kubectl access; "
-            "this page will update when the agent checks in."
+            "Helm can report deployed while this page waits for agent check-in. "
+            "The bundled chart installs a placeholder workload that does not call the API; use “Mark connected” "
+            "below when the API has no agent token (typical local dev), or install a real agent that POSTs check-in."
         )
     elif row.registration_status == "connected":
         message = "Agent check-in detected. This cluster is linked in KubePilot."
@@ -251,19 +345,40 @@ def cluster_registration_status(
         cluster_name=row.name,
         registration_status=row.registration_status,
         message=message,
+        owner_check_in_available=owner_check_in_available,
     )
 
 
 @router.get("/clusters", response_model=list[ClusterPublic])
-def list_clusters(db: Session = Depends(get_db)) -> list[ClusterPublic]:
-    rows = db.scalars(select(m.Cluster).order_by(m.Cluster.created_at.desc())).all()
+def list_clusters(
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
+) -> list[ClusterPublic]:
+    orgs = _user_org_ids(user)
+    if not orgs:
+        return []
+    rows = db.scalars(
+        select(m.Cluster)
+        .where(m.Cluster.organization_id.in_([UUID(o) for o in orgs]))
+        .order_by(m.Cluster.created_at.desc())
+    ).all()
     return [_cluster_to_public(r) for r in rows]
 
 
 @router.get("/clusters/health", response_model=list[ClusterHealthItem])
-def clusters_health(db: Session = Depends(get_db)) -> list[ClusterHealthItem]:
+def clusters_health(
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
+) -> list[ClusterHealthItem]:
     """Health from last stored scan per cluster (no live Kubernetes API calls)."""
-    rows = db.scalars(select(m.Cluster).order_by(m.Cluster.created_at.desc())).all()
+    orgs = _user_org_ids(user)
+    if not orgs:
+        return []
+    rows = db.scalars(
+        select(m.Cluster)
+        .where(m.Cluster.organization_id.in_([UUID(o) for o in orgs]))
+        .order_by(m.Cluster.created_at.desc())
+    ).all()
     return [
         ClusterHealthItem.model_validate(health_item_from_summary(row, get_cached_summary(row, None)))
         for row in rows
@@ -271,10 +386,12 @@ def clusters_health(db: Session = Depends(get_db)) -> list[ClusterHealthItem]:
 
 
 @router.get("/clusters/{cluster_id}", response_model=ClusterPublic)
-def get_cluster(cluster_id: UUID, db: Session = Depends(get_db)) -> ClusterPublic:
-    row = db.get(m.Cluster, cluster_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Cluster not found")
+def get_cluster(
+    cluster_id: UUID,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
+) -> ClusterPublic:
+    row = _get_cluster_for_user(db, cluster_id, user)
     return _cluster_to_public(row)
 
 
@@ -284,10 +401,9 @@ def get_cluster_summary(
     namespace: str | None = None,
     scan: bool = Query(False, description="When true, query the cluster API and persist results."),
     db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
 ) -> ClusterSummaryResponse:
-    row = db.get(m.Cluster, cluster_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Cluster not found")
+    row = _get_cluster_for_user(db, cluster_id, user)
     ns = namespace.strip() if namespace and namespace.strip() else None
 
     if not scan:
@@ -305,6 +421,14 @@ def get_cluster_summary(
     )
     scan_error = raw.get("error")
     if scan_error:
+        logger.info(
+            "cluster_summary_scan_returned_error",
+            extra={
+                "cluster_id": str(row.id),
+                "cluster_name": row.name,
+                "scan_error": (str(scan_error)[:500] if scan_error else None),
+            },
+        )
         persist_scan_summary(db, row, ns, raw)
         db.commit()
         db.refresh(row)
@@ -380,10 +504,9 @@ def explain_cluster_finding(
     cluster_id: UUID,
     insight_id: str,
     db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
 ) -> FindingExplainResult:
-    row = db.get(m.Cluster, cluster_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Cluster not found")
+    row = _get_cluster_for_user(db, cluster_id, user)
     from kubepilot.intelligence import IntelligenceService
 
     insight = _insight_from_request(row, insight_id)
@@ -398,10 +521,9 @@ def triage_cluster_finding(
     cluster_id: UUID,
     insight_id: str,
     db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
 ) -> FindingTriageResult:
-    row = db.get(m.Cluster, cluster_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Cluster not found")
+    row = _get_cluster_for_user(db, cluster_id, user)
     from kubepilot.intelligence import IntelligenceService
 
     insight = _insight_from_request(row, insight_id)
@@ -417,21 +539,61 @@ def remediate_cluster_finding(
     insight_id: str,
     context: FindingContextBody | None = Body(None),
     db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
 ) -> RemediationPlanResult:
-    row = db.get(m.Cluster, cluster_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Cluster not found")
+    row = _get_cluster_for_user(db, cluster_id, user)
     from kubepilot.intelligence import IntelligenceService
 
     insight = _insight_from_request(row, insight_id, context)
     return IntelligenceService(get_settings()).remediate(insight, row.name)
 
 
+@router.post("/clusters/{cluster_id}/agent/check-in")
+async def agent_cluster_check_in(
+    request: Request,
+    cluster_id: UUID,
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    """In-cluster agent or owner marks registration as connected (see README / env.example)."""
+    settings = get_settings()
+    row = db.get(m.Cluster, cluster_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+
+    agent_tok = (settings.agent_service_token or "").strip()
+    hdr = (request.headers.get("X-KubePilot-Agent-Token") or "").strip()
+
+    if agent_tok and hdr and len(hdr) == len(agent_tok) and secrets.compare_digest(agent_tok, hdr):
+        pass
+    elif not agent_tok:
+        user = await require_session_user(request, db)
+        row = _get_cluster_for_user(db, cluster_id, user)
+        if str(row.owner_user_id) != user["user_id"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the cluster owner may check in without KUBEPILOT_AGENT_SERVICE_TOKEN.",
+            )
+    else:
+        raise HTTPException(status_code=401, detail="Invalid or missing X-KubePilot-Agent-Token.")
+
+    row.registration_status = "connected"
+    meta = dict(row.onboarding_metadata or {})
+    meta["agent_check_in_at"] = datetime.now(tz=UTC).isoformat()
+    row.onboarding_metadata = meta
+    db.add(row)
+    db.commit()
+    return {"status": "connected", "cluster_id": str(cluster_id)}
+
+
 @router.delete("/clusters/{cluster_id}", status_code=204)
-def delete_cluster(cluster_id: UUID, db: Session = Depends(get_db)) -> None:
-    cl = db.get(m.Cluster, cluster_id)
-    if cl is None:
-        raise HTTPException(status_code=404, detail="not found")
+def delete_cluster(
+    cluster_id: UUID,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
+) -> None:
+    cl = _get_cluster_for_user(db, cluster_id, user)
+    if cl.owner_user_id != UUID(user["user_id"]):
+        raise HTTPException(status_code=403, detail="Only the cluster owner may delete this cluster.")
     db.execute(
         update(m.AnalysisRun)
         .where(m.AnalysisRun.cluster_id == cluster_id)
@@ -445,11 +607,15 @@ async def create_analysis_run(
     body: AnalysisRunCreate,
     request: Request,
     db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
 ) -> AnalysisRun:
     try:
         resolved_ns = resolve_scope_namespaces(body.scope_namespace, body.scope_namespaces)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
+
+    if body.cluster_id is not None:
+        _get_cluster_for_user(db, body.cluster_id, user)
 
     run_id = uuid4()
     now = datetime.now(tz=UTC)
@@ -463,6 +629,7 @@ async def create_analysis_run(
 
     run = m.AnalysisRun(
         id=run_id,
+        owner_user_id=UUID(user["user_id"]),
         cluster_id=body.cluster_id,
         status="pending",
         scope_namespace=scope_namespace_single,
@@ -483,10 +650,12 @@ async def create_analysis_run(
 
 
 @router.get("/analysis-runs/{analysis_run_id}", response_model=AnalysisRun)
-def get_analysis_run(analysis_run_id: UUID, db: Session = Depends(get_db)) -> AnalysisRun:
-    run = db.get(m.AnalysisRun, analysis_run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="not found")
+def get_analysis_run(
+    analysis_run_id: UUID,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
+) -> AnalysisRun:
+    run = _get_analysis_run_for_user(db, analysis_run_id, user)
     q = select(m.RecommendationORM.id).where(m.RecommendationORM.analysis_run_id == run.id)
     rec_ids = list(db.scalars(q).all())
     inv = fetch_investigation_answer(db, run.id)
@@ -497,11 +666,10 @@ def get_analysis_run(analysis_run_id: UUID, db: Session = Depends(get_db)) -> An
 def list_analysis_run_recommendations(
     analysis_run_id: UUID,
     db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
     limit: int = Query(default=50, le=200),
 ) -> RecommendationList:
-    run = db.get(m.AnalysisRun, analysis_run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="not found")
+    run = _get_analysis_run_for_user(db, analysis_run_id, user)
     q_total = select(func.count()).select_from(m.RecommendationORM).where(
         m.RecommendationORM.analysis_run_id == analysis_run_id
     )
@@ -518,11 +686,24 @@ def list_analysis_run_recommendations(
 @router.get("/recommendations", response_model=RecommendationList)
 def list_recommendations(
     db: Session = Depends(get_db),
+    user: dict = Depends(require_session_user),
     limit: int = Query(default=20, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> RecommendationList:
-    total = db.scalar(select(func.count()).select_from(m.RecommendationORM)) or 0
+    uid = UUID(user["user_id"])
+    join_stmt = (
+        select(func.count())
+        .select_from(m.RecommendationORM)
+        .join(m.AnalysisRun, m.RecommendationORM.analysis_run_id == m.AnalysisRun.id)
+        .where(m.AnalysisRun.owner_user_id == uid)
+    )
+    total = int(db.scalar(join_stmt) or 0)
     rows = db.scalars(
-        select(m.RecommendationORM).order_by(m.RecommendationORM.created_at.desc()).offset(offset).limit(limit)
+        select(m.RecommendationORM)
+        .join(m.AnalysisRun, m.RecommendationORM.analysis_run_id == m.AnalysisRun.id)
+        .where(m.AnalysisRun.owner_user_id == uid)
+        .order_by(m.RecommendationORM.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
-    return RecommendationList(items=[rec_to_schema(r) for r in rows], total=int(total))
+    return RecommendationList(items=[rec_to_schema(r) for r in rows], total=total)

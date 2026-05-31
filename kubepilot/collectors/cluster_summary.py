@@ -469,17 +469,60 @@ def _insights_from_snapshot(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _friendly_api_error(exc: Exception) -> str:
+def _cluster_provider(cluster: m.Cluster) -> str:
+    meta = cluster.onboarding_metadata if isinstance(cluster.onboarding_metadata, dict) else {}
+    p = meta.get("provider")
+    if isinstance(p, str) and p.strip():
+        return p.strip().lower()
+    return "local" if cluster.kubeconfig_yaml else "aws"
+
+
+def _log_scan_failure(cluster: m.Cluster, phase: str, exc: BaseException | None = None) -> None:
+    """Log full exception server-side; never rely on this text reaching the browser."""
+    extra = {
+        "cluster_id": str(cluster.id),
+        "cluster_name": cluster.name,
+        "provider": _cluster_provider(cluster),
+        "scan_phase": phase,
+    }
+    if exc is not None:
+        logger.warning("cluster_scan_failed", extra=extra, exc_info=exc)
+    else:
+        logger.warning("cluster_scan_failed", extra=extra)
+
+
+def _user_safe_scan_error(cluster: m.Cluster, exc: Exception) -> str:
+    """Short, product-safe copy for API/UI. Details go to logs only."""
+    prov = _cluster_provider(cluster)
     if isinstance(exc, ApiException):
-        return f"Kubernetes API error ({exc.status}): {exc.reason or 'request failed'}"
-    if isinstance(exc, (ConnectionError, NewConnectionError, MaxRetryError)):
+        if prov == "aws":
+            return (
+                "Live scan could not use the Kubernetes API from this server. "
+                "For private EKS, add kubeconfig for this cluster or run scans from a runner in your network."
+            )
         return (
-            "Cannot reach the cluster API. The cluster may be stopped, or the stored kubeconfig "
-            "may be stale (common after minikube restart — the API port changes). Start the cluster, "
-            "run `minikube kubectl config view --minify`, and re-paste the kubeconfig when registering, "
-            "then click Scan cluster."
+            "The Kubernetes API returned an error. Check kubeconfig permissions or that the cluster is reachable."
         )
-    return str(exc)
+    if isinstance(exc, (ConnectionError, NewConnectionError, MaxRetryError)):
+        if prov == "aws":
+            return (
+                "No working network path to the Kubernetes API with the current settings. "
+                "Private clusters need kubeconfig on the API host or a collector inside your VPC."
+            )
+        return (
+            "Could not reach the cluster API. If you use a local cluster, refresh kubeconfig after restarts, then scan again."
+        )
+    return "Scan did not finish. Please wait before trying again, or ask your admin if this continues."
+
+
+def _no_kubeconfig_message(cluster: m.Cluster) -> str:
+    if _cluster_provider(cluster) == "aws":
+        return (
+            "Live scans need Kubernetes API access. This workspace does not have kubeconfig for this cluster yet, "
+            "so the API cannot call your private EKS control plane. Add kubeconfig (encrypted at rest when enabled) "
+            "or run collection from a component in your VPC."
+        )
+    return "No kubeconfig stored for this cluster. Re-register and paste kubeconfig to run live scans."
 
 
 def collect_cluster_summary(
@@ -516,19 +559,29 @@ def collect_cluster_summary(
     }
 
     if not kube_yaml and not path:
+        logger.info(
+            "cluster_scan_skipped_no_kubeconfig",
+            extra={
+                "cluster_id": str(cluster.id),
+                "cluster_name": cluster.name,
+                "provider": _cluster_provider(cluster),
+            },
+        )
+        msg = _no_kubeconfig_message(cluster)
         return {
             **empty_base,
-            "error": "No kubeconfig stored for this cluster. Re-register with a kubeconfig paste.",
-            "metrics_message": "Kubeconfig required to query the API.",
+            "error": msg,
+            "metrics_message": None,
         }
 
     try:
         load_kube_config(kubeconfig_yaml=kube_yaml, kube_config_path=path)
     except Exception as e:
+        _log_scan_failure(cluster, "load_kube_config", e)
         return {
             **empty_base,
-            "error": f"Could not load kubeconfig: {e}",
-            "metrics_message": str(e),
+            "error": "Kubeconfig could not be loaded. Regenerate it from a machine that can reach the cluster and paste it again.",
+            "metrics_message": None,
         }
 
     v1 = client.CoreV1Api()
@@ -537,16 +590,18 @@ def collect_cluster_summary(
     net = client.NetworkingV1Api()
     custom = client.CustomObjectsApi()
 
+    namespace_names: list[str] = []
     try:
         namespace_names = sorted(
             n.metadata.name for n in v1.list_namespace(watch=False).items if n.metadata.name
         )
     except Exception as e:
-        msg = _friendly_api_error(e)
+        _log_scan_failure(cluster, "list_namespace", e)
+        msg = _user_safe_scan_error(cluster, e)
         return {
             **empty_base,
             "error": msg,
-            "metrics_message": msg,
+            "metrics_message": None,
             "health": compute_cluster_health(
                 registration_status=cluster.registration_status,
                 counts={},
@@ -677,12 +732,13 @@ def collect_cluster_summary(
             "namespace_health": health.get("namespace_health") or [],
         }
     except Exception as e:
-        msg = _friendly_api_error(e)
+        _log_scan_failure(cluster, "collect_cluster_summary", e)
+        msg = _user_safe_scan_error(cluster, e)
         return {
             **empty_base,
             "namespaces": namespace_names,
             "error": msg,
-            "metrics_message": msg,
+            "metrics_message": None,
             "health": compute_cluster_health(
                 registration_status=cluster.registration_status,
                 counts={},

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import FastAPI, HTTPException, Request
@@ -35,9 +36,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def validation_exception_handler(
         _request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        # Pydantic may put non-JSON values (e.g. ValueError) in ctx — coerce for JSONResponse.
+        safe_detail = json.loads(json.dumps(exc.errors(), default=str))
         return JSONResponse(
             status_code=422,
-            content={"detail": exc.errors()},
+            content={"detail": safe_detail},
         )
 
     @app.exception_handler(StartupConfigError)

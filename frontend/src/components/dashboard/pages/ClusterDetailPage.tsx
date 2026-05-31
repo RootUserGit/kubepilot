@@ -38,6 +38,9 @@ function clusterStatusBadge(
   options?: { scanFailed?: boolean },
 ): { severity: "healthy" | "warning" | "critical" | "info"; label: string } {
   if (options?.scanFailed) {
+    if (cluster.provider === "aws" && !cluster.kubeconfig_configured) {
+      return { severity: "warning", label: "Scan needs kubeconfig" };
+    }
     return { severity: "critical", label: "Unreachable" };
   }
   if (cluster.connectivity_status === "reachable" || cluster.last_scan_at) {
@@ -56,6 +59,21 @@ function providerLabel(provider: string | null): string {
   if (provider === "local") return "Local";
   if (provider === "aws") return "AWS EKS";
   return provider ?? "—";
+}
+
+function friendlyScanFailureCopy(cluster: ClusterPublic): { title: string; body: string } {
+  if (cluster.provider === "aws" && !cluster.kubeconfig_configured) {
+    return {
+      title: "Scan needs kubeconfig",
+      body:
+        "KubePilot cannot reach your EKS API from here without a stored kubeconfig. Add kubeconfig for this cluster, then run Scan again.",
+    };
+  }
+  return {
+    title: "We could not complete the scan",
+    body:
+      "This usually means the Kubernetes API is not reachable from KubePilot (private network, firewall, or VPN). Use the timer below before trying again, or ask your platform admin if it keeps happening.",
+  };
 }
 
 function formatCpu(millicores: number | null | undefined): string {
@@ -274,6 +292,7 @@ export function ClusterDetailPage({ clusterId }: { clusterId: string }) {
   const [cacheLoading, setCacheLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanFailed, setScanFailed] = useState(false);
+  const [scanWaitSec, setScanWaitSec] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selectedNamespace, setSelectedNamespace] = useState<string>("");
   const [chartMetric, setChartMetric] = useState<"cpu" | "memory">("cpu");
@@ -283,6 +302,14 @@ export function ClusterDetailPage({ clusterId }: { clusterId: string }) {
   const lastSnapshotAt = useRef<string | null>(null);
 
   const nsParam = selectedNamespace || null;
+
+  useEffect(() => {
+    if (scanWaitSec <= 0) return;
+    const id = window.setInterval(() => {
+      setScanWaitSec((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [scanWaitSec]);
 
   const loadCachedSummary = useCallback(async () => {
     setCacheLoading(true);
@@ -297,21 +324,25 @@ export function ClusterDetailPage({ clusterId }: { clusterId: string }) {
   }, [clusterId, nsParam]);
 
   const runScan = useCallback(async () => {
+    let scanFailure = false;
     setScanning(true);
     setScanFailed(false);
     setError(null);
     try {
       const data = await fetchClusterSummary(clusterId, { namespace: nsParam, scan: true });
       setSummary(data);
-      const failed = Boolean(data.scan_error || data.error);
-      setScanFailed(failed);
-      setError(data.scan_error ?? data.error ?? null);
+      scanFailure = Boolean(data.scan_error || data.error);
+      setScanFailed(scanFailure);
+      setError(null);
       setCluster(await fetchCluster(clusterId));
     } catch (e) {
+      scanFailure = true;
       setScanFailed(true);
       setError(e instanceof Error ? e.message : "Scan failed");
     } finally {
       setScanning(false);
+      if (scanFailure) setScanWaitSec(45);
+      else setScanWaitSec(0);
     }
   }, [clusterId, nsParam]);
 
@@ -331,6 +362,7 @@ export function ClusterDetailPage({ clusterId }: { clusterId: string }) {
 
   useEffect(() => {
     setScanFailed(false);
+    setScanWaitSec(0);
     void loadCluster();
   }, [loadCluster]);
 
@@ -397,6 +429,8 @@ export function ClusterDetailPage({ clusterId }: { clusterId: string }) {
   }
 
   if (!cluster) return null;
+
+  const scanFailureBanner = scanFailed ? friendlyScanFailureCopy(cluster) : null;
 
   const counts = summary?.counts ?? {};
   const metricsAvailable = summary?.metrics_available ?? false;
@@ -509,12 +543,16 @@ export function ClusterDetailPage({ clusterId }: { clusterId: string }) {
             <button
               type="button"
               onClick={() => void runScan()}
-              disabled={scanning}
-              title="Query this cluster via Kubernetes API (live scan)"
+              disabled={scanning || scanWaitSec > 0}
+              title={
+                scanWaitSec > 0
+                  ? `Please wait ${scanWaitSec}s before scanning again`
+                  : "Query this cluster via Kubernetes API (live scan)"
+              }
               className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-kp-blue px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-kp-blue/90 disabled:opacity-50 sm:w-auto"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} />
-              {scanning ? "Scanning…" : "Scan cluster"}
+              {scanning ? "Scanning…" : scanWaitSec > 0 ? `Try again in ${scanWaitSec}s` : "Scan cluster"}
             </button>
             {(cluster.last_scan_at ?? summary?.last_scan_at) && (
               <span className="w-full text-center text-[10px] text-kp-muted sm:text-right">
@@ -564,13 +602,19 @@ export function ClusterDetailPage({ clusterId }: { clusterId: string }) {
           </div>
         )}
 
-        {(scanFailed && (summary?.scan_error || summary?.error || error)) && (
+        {scanFailureBanner && (
           <div
             role="alert"
             className="flex gap-3 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
           >
             <AlertCircle className="h-5 w-5 shrink-0" />
-            <span>{summary?.scan_error ?? summary?.error ?? error}</span>
+            <div>
+              <p className="font-medium text-kp-text">{scanFailureBanner.title}</p>
+              <p className="mt-1 text-xs text-kp-muted leading-relaxed">{scanFailureBanner.body}</p>
+              {scanWaitSec > 0 ? (
+                <p className="mt-2 text-xs text-kp-muted">Scan button unlocks in {scanWaitSec}s.</p>
+              ) : null}
+            </div>
           </div>
         )}
 

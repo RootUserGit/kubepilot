@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kubepilot-agent
+description: KubePilot in-cluster agent (offline bundle; replace placeholder image when your agent image is ready)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

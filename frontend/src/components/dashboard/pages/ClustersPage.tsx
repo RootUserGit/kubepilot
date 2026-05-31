@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   BarChart3,
@@ -460,9 +460,8 @@ export function ClustersPage() {
                           (visibleColumns.status ? 1 : 0);
 
                         return (
-                          <>
+                          <Fragment key={c.id}>
                           <tr
-                            key={c.id}
                             className="border-b border-kp-border/40 transition-colors last:border-0 hover:bg-kp-surface/50"
                           >
                             <td className="px-4 py-3.5">
@@ -601,7 +600,7 @@ export function ClustersPage() {
                             </td>
                           </tr>
                           {expandedHealthId === c.id && (h?.namespace_health?.length ?? 0) > 0 && (
-                            <tr key={`${c.id}-ns-health`} className="border-b border-kp-border/40 bg-kp-surface/20">
+                            <tr className="border-b border-kp-border/40 bg-kp-surface/20">
                               <td colSpan={colSpan} className="px-4 py-4">
                                 <NamespaceHealthPanel
                                   items={h!.namespace_health!}
@@ -611,7 +610,7 @@ export function ClustersPage() {
                               </td>
                             </tr>
                           )}
-                          </>
+                          </Fragment>
                         );
                       },
                     )}

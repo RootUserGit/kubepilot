@@ -88,9 +88,17 @@ After sign-in, open **Clusters → Register Cluster**:
 
 1. **Platform** — Local (kubeconfig), AWS (saved profiles or one-time keys/role), Azure/GCP coming soon.
 2. **Local** — cluster name + kubeconfig YAML (recommended when API runs in Docker).
-3. **AWS** — create an encrypted IAM user or IAM role profile (trust account `787943461725`), verify with `eks:DescribeCluster`, then install the read-only Helm agent.
+3. **AWS** — create an encrypted IAM user or IAM role profile (trust account `787943461725`), verify with `eks:DescribeCluster`, then install the read-only Helm agent. For **Helm without a public chart repo**, use the dashboard **Download chart zip** after registration and run the **offline** install command (unzip produces a `kubepilot-agent/` folder). Generated commands include **`--atomic`**, **`--cleanup-on-fail`**, and **`--timeout 10m`** for safer installs. For the **published-repo** command, set `KUBEPILOT_HELM_AGENT_REPO_INDEX_URL` in the API `.env` (or export the same variable in your shell when the API leaves it unset — see `env.example`). The **Agent IRSA role ARN** on the form must be an **IAM** role ARN (`arn:aws:iam::ACCOUNT:role/...`), not an EKS cluster ARN. The bundled chart is a **placeholder workload** (pause pod): it does **not** call the API. With **`KUBEPILOT_AGENT_SERVICE_TOKEN` unset** (typical local dev), the registering user can click **Mark connected (owner, dev)** on the install step after Helm succeeds; in production, set the agent token and use a real agent that POSTs check-in.
 
 Set `KUBEPILOT_CREDENTIALS_ENCRYPTION_KEY` in `.env` to save AWS access-key profiles (`openssl rand -hex 32`).
+
+## Workspaces (multi-tenant)
+
+After Google sign-in, the API creates a **user** row and a personal **organization** (workspace). Clusters and analysis runs belong to that workspace and are only visible with a valid session. Cluster count is capped by `organizations.max_clusters` (default **5** for the `free` plan); exceeding the limit returns **402**.
+
+**In-cluster agent:** set `KUBEPILOT_AGENT_SERVICE_TOKEN` and call `POST /v1/clusters/{cluster_id}/agent/check-in` with header `X-KubePilot-Agent-Token` matching that value. If the token is **not** set (local dev), only the **cluster owner** (signed in) may call the same endpoint to mark the cluster connected. Simulated agent connect (`KUBEPILOT_SIMULATE_AGENT_CONNECT_SECONDS`) does **not** run when `KUBEPILOT_ENVIRONMENT` is production.
+
+**OpenAPI export:** `make openapi-export` writes `packages/openapi/openapi.generated.json` from the running app schema (override path with `KUBEPILOT_OPENAPI_EXPORT_PATH` for CI).
 
 ## Google Sign-In (local dev)
 

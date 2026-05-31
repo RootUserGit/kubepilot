@@ -11,3 +11,4 @@ def test_swagger_under_v1() -> None:
         spec = client.get("/v1/openapi.json").json()
         assert "/v1/healthcheck" in spec["paths"]
         assert "/v1/clusters" in spec["paths"]
+        assert "/v1/clusters/{cluster_id}/agent/check-in" in spec["paths"]

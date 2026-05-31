@@ -23,9 +23,13 @@ const AWS_REGIONS = [
   "ap-southeast-2",
 ] as const;
 
+const CREATE_NEW_VALUE = "__create__";
+
 const inputBase =
   "w-full rounded-lg border bg-kp-bg-deep px-3 py-2.5 text-sm text-kp-text outline-none focus:ring-2 focus:ring-kp-blue/25";
 const inputOk = "border-kp-border focus:border-kp-blue";
+
+type Flow = "choose_type" | "user_profiles" | "role_profiles";
 
 type Props = {
   onContinue: (selectedProfileId: string | null) => void;
@@ -35,8 +39,9 @@ type Props = {
 
 export function AwsConnectionSetup({ onContinue, onOneTime, onBack }: Props) {
   const [profiles, setProfiles] = useState<AwsProfilePublic[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mode, setMode] = useState<"pick" | "user" | "role">("pick");
+  const [flow, setFlow] = useState<Flow>("choose_type");
+  const [userSelect, setUserSelect] = useState("");
+  const [roleSelect, setRoleSelect] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,17 +74,36 @@ export function AwsConnectionSetup({ onContinue, onOneTime, onBack }: Props) {
   }, [loadProfiles]);
 
   useEffect(() => {
-    if (mode !== "role") return;
     void fetchOnboardingExternalId()
       .then((r) => setExternalId(r.external_id))
       .catch(() => setExternalId(""));
-  }, [mode]);
+  }, []);
+
+  const userProfiles = profiles.filter((p) => p.connection_type === "iam_user");
+  const roleProfiles = profiles.filter((p) => p.connection_type === "iam_role");
+
+  function resetUserFormFields() {
+    setProfileName("");
+    setAccountId("");
+    setRegion("us-east-1");
+    setAccessKeyId("");
+    setSecretKey("");
+    setSessionToken("");
+    setAgentRoleArn("");
+  }
+
+  function resetRoleFormFields() {
+    setProfileName("");
+    setAccountId("");
+    setRegion("us-east-1");
+    setRoleArn("");
+  }
 
   async function saveUserProfile() {
     setError(null);
     setSaving(true);
     try {
-      await createAwsProfile({
+      const created = await createAwsProfile({
         connection_type: "iam_user",
         profile_name: profileName.trim(),
         aws_account_id: accountId.trim(),
@@ -90,7 +114,8 @@ export function AwsConnectionSetup({ onContinue, onOneTime, onBack }: Props) {
         role_arn: agentRoleArn.trim() || null,
       });
       setSuccess("IAM user profile saved.");
-      setMode("pick");
+      setUserSelect(created.id);
+      resetUserFormFields();
       await loadProfiles();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save profile");
@@ -103,7 +128,7 @@ export function AwsConnectionSetup({ onContinue, onOneTime, onBack }: Props) {
     setError(null);
     setSaving(true);
     try {
-      await createAwsProfile({
+      const created = await createAwsProfile({
         connection_type: "iam_role",
         profile_name: profileName.trim(),
         aws_account_id: accountId.trim(),
@@ -112,7 +137,8 @@ export function AwsConnectionSetup({ onContinue, onOneTime, onBack }: Props) {
         external_id: externalId.trim() || null,
       });
       setSuccess("IAM role profile saved.");
-      setMode("pick");
+      setRoleSelect(created.id);
+      resetRoleFormFields();
       await loadProfiles();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save profile");
@@ -121,10 +147,20 @@ export function AwsConnectionSetup({ onContinue, onOneTime, onBack }: Props) {
     }
   }
 
-  async function handleDelete(id: string) {
+  async function handleDeleteUserProfile(id: string) {
     try {
       await deleteAwsProfile(id);
-      if (selectedId === id) setSelectedId(null);
+      if (userSelect === id) setUserSelect("");
+      await loadProfiles();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete profile");
+    }
+  }
+
+  async function handleDeleteRoleProfile(id: string) {
+    try {
+      await deleteAwsProfile(id);
+      if (roleSelect === id) setRoleSelect("");
       await loadProfiles();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not delete profile");
@@ -136,8 +172,8 @@ export function AwsConnectionSetup({ onContinue, onOneTime, onBack }: Props) {
       <div>
         <h2 className="text-xl font-semibold text-kp-text">AWS connection</h2>
         <p className="mt-1 text-sm text-kp-muted">
-          Save a reusable profile for your AWS account, or continue with one-time credentials on the next
-          step.
+          Choose how you connect to AWS, then pick a saved profile or create one. You can also use one-time
+          credentials on the next step without saving a profile.
         </p>
       </div>
 
@@ -154,85 +190,48 @@ export function AwsConnectionSetup({ onContinue, onOneTime, onBack }: Props) {
         </div>
       )}
 
-      {mode === "pick" && (
+      {flow === "choose_type" && (
         <>
-          {loading ? (
-            <p className="text-sm text-kp-muted">Loading profiles…</p>
-          ) : profiles.length > 0 ? (
-            <ul className="space-y-2">
-              {profiles.map((p) => (
-                <li
-                  key={p.id}
-                  className={`flex items-center justify-between rounded-xl border p-3 ${
-                    selectedId === p.id ? "border-kp-blue/50 bg-kp-blue/10" : "border-kp-border bg-kp-surface/40"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(p.id)}
-                    className="min-w-0 flex-1 text-left"
-                  >
-                    <p className="font-medium text-kp-text">{p.profile_name}</p>
-                    <p className="text-xs text-kp-muted">
-                      {p.connection_type} · {p.aws_account_id} · {p.default_region}
-                      {p.access_key_last4 ? ` · …${p.access_key_last4}` : ""}
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete(p.id)}
-                    className="ml-2 rounded p-2 text-kp-muted hover:text-red-400"
-                    aria-label={`Delete ${p.profile_name}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-kp-muted">No saved profiles yet. Create one below.</p>
-          )}
-
           <div className="grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => {
-                setMode("user");
-                setSuccess(null);
-              }}
-              className="rounded-xl border border-kp-border p-4 text-left hover:border-kp-blue/40"
-            >
-              <span className="flex items-center gap-2 font-medium text-kp-text">
-                IAM User profile
+            <div className="flex rounded-xl border border-kp-border hover:border-kp-blue/40">
+              <button
+                type="button"
+                onClick={() => {
+                  setFlow("user_profiles");
+                  setUserSelect("");
+                  setSuccess(null);
+                  setError(null);
+                }}
+                className="min-w-0 flex-1 p-4 text-left"
+              >
+                <span className="font-medium text-kp-text">IAM User profile</span>
+                <p className="mt-1 text-xs text-kp-muted">Access keys stored encrypted server-side.</p>
+              </button>
+              <div className="flex shrink-0 items-start pt-3 pr-3">
                 <PermissionsHelp kind="iam_user" />
-              </span>
-              <p className="mt-1 text-xs text-kp-muted">Store access keys (encrypted server-side).</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode("role");
-                setSuccess(null);
-              }}
-              className="rounded-xl border border-kp-border p-4 text-left hover:border-kp-blue/40"
-            >
-              <span className="flex items-center gap-2 font-medium text-kp-text">
-                IAM Role profile
+              </div>
+            </div>
+            <div className="flex rounded-xl border border-kp-border hover:border-kp-blue/40">
+              <button
+                type="button"
+                onClick={() => {
+                  setFlow("role_profiles");
+                  setRoleSelect("");
+                  setSuccess(null);
+                  setError(null);
+                }}
+                className="min-w-0 flex-1 p-4 text-left"
+              >
+                <span className="font-medium text-kp-text">IAM Role profile</span>
+                <p className="mt-1 text-xs text-kp-muted">Role ARN + External ID (trust 787943461725).</p>
+              </button>
+              <div className="flex shrink-0 items-start pt-3 pr-3">
                 <PermissionsHelp kind="iam_role" externalId={externalId} />
-              </span>
-              <p className="mt-1 text-xs text-kp-muted">Role ARN + External ID (trust 787943461725).</p>
-            </button>
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-3 border-t border-kp-border pt-6">
-            <button
-              type="button"
-              disabled={!selectedId}
-              onClick={() => onContinue(selectedId)}
-              className="rounded-lg bg-kp-blue px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-            >
-              Continue with selected profile
-            </button>
             <button
               type="button"
               onClick={onOneTime}
@@ -247,70 +246,215 @@ export function AwsConnectionSetup({ onContinue, onOneTime, onBack }: Props) {
         </>
       )}
 
-      {mode === "user" && (
-        <ProfileForm
-          title="New IAM User profile"
-          onCancel={() => setMode("pick")}
-          onSave={() => void saveUserProfile()}
-          saving={saving}
-        >
-          <ProfileFields
-            profileName={profileName}
-            setProfileName={setProfileName}
-            accountId={accountId}
-            setAccountId={setAccountId}
-            region={region}
-            setRegion={setRegion}
-          />
-          <label className="block">
-            <span className="mb-1 text-xs text-kp-muted">Access Key ID</span>
-            <input value={accessKeyId} onChange={(e) => setAccessKeyId(e.target.value)} className={`${inputBase} ${inputOk} font-mono text-xs`} />
-          </label>
-          <label className="block">
-            <span className="mb-1 text-xs text-kp-muted">Secret Access Key</span>
-            <input type="password" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} className={`${inputBase} ${inputOk}`} />
-          </label>
-          <label className="block">
-            <span className="mb-1 text-xs text-kp-muted">Session token (optional)</span>
-            <textarea value={sessionToken} onChange={(e) => setSessionToken(e.target.value)} rows={2} className={`${inputBase} ${inputOk} text-xs`} />
-          </label>
-          <label className="block">
-            <span className="mb-1 text-xs text-kp-muted">Agent IRSA role ARN (optional, for Helm)</span>
-            <input value={agentRoleArn} onChange={(e) => setAgentRoleArn(e.target.value)} className={`${inputBase} ${inputOk} font-mono text-xs`} />
-          </label>
-        </ProfileForm>
+      {flow === "user_profiles" && (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[min(100%,20rem)] flex-1">
+              <label className="block">
+                <span className="mb-1.5 flex items-center gap-2 text-xs font-medium text-kp-muted">
+                  IAM user profile
+                  <PermissionsHelp kind="iam_user" />
+                </span>
+                {loading ? (
+                  <p className="text-sm text-kp-muted">Loading profiles…</p>
+                ) : (
+                  <select
+                    value={userSelect}
+                    onChange={(e) => {
+                      setUserSelect(e.target.value);
+                      setSuccess(null);
+                    }}
+                    className={`${inputBase} ${inputOk}`}
+                  >
+                    <option value="">Select a saved profile…</option>
+                    {userProfiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.profile_name} · {p.aws_account_id} · {p.default_region}
+                        {p.access_key_last4 ? ` · …${p.access_key_last4}` : ""}
+                      </option>
+                    ))}
+                    <option value={CREATE_NEW_VALUE}>Create new profile…</option>
+                  </select>
+                )}
+              </label>
+            </div>
+            {userSelect && userSelect !== CREATE_NEW_VALUE && (
+              <button
+                type="button"
+                onClick={() => void handleDeleteUserProfile(userSelect)}
+                className="inline-flex items-center gap-2 rounded-lg border border-kp-border px-3 py-2.5 text-sm text-kp-muted hover:border-red-500/40 hover:text-red-300"
+                aria-label="Delete selected profile"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </button>
+            )}
+          </div>
+
+          {userSelect === CREATE_NEW_VALUE && (
+            <ProfileForm
+              title="New IAM User profile"
+              onCancel={() => {
+                setUserSelect("");
+                resetUserFormFields();
+              }}
+              onSave={() => void saveUserProfile()}
+              saving={saving}
+            >
+              <ProfileFields
+                profileName={profileName}
+                setProfileName={setProfileName}
+                accountId={accountId}
+                setAccountId={setAccountId}
+                region={region}
+                setRegion={setRegion}
+              />
+              <label className="block">
+                <span className="mb-1 text-xs text-kp-muted">Access Key ID</span>
+                <input value={accessKeyId} onChange={(e) => setAccessKeyId(e.target.value)} className={`${inputBase} ${inputOk} font-mono text-xs`} />
+              </label>
+              <label className="block">
+                <span className="mb-1 text-xs text-kp-muted">Secret Access Key</span>
+                <input type="password" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} className={`${inputBase} ${inputOk}`} />
+              </label>
+              <label className="block">
+                <span className="mb-1 text-xs text-kp-muted">Session token (optional)</span>
+                <textarea value={sessionToken} onChange={(e) => setSessionToken(e.target.value)} rows={2} className={`${inputBase} ${inputOk} text-xs`} />
+              </label>
+              <label className="block">
+                <span className="mb-1 text-xs text-kp-muted">Agent IRSA role ARN (optional, for Helm)</span>
+                <input value={agentRoleArn} onChange={(e) => setAgentRoleArn(e.target.value)} className={`${inputBase} ${inputOk} font-mono text-xs`} />
+              </label>
+            </ProfileForm>
+          )}
+
+          <div className="flex flex-wrap gap-3 border-t border-kp-border pt-6">
+            <button
+              type="button"
+              disabled={!userSelect || userSelect === CREATE_NEW_VALUE}
+              onClick={() => onContinue(userSelect)}
+              className="rounded-lg bg-kp-blue px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Continue with selected profile
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFlow("choose_type");
+                setUserSelect("");
+                resetUserFormFields();
+                setSuccess(null);
+              }}
+              className="text-sm text-kp-muted hover:text-kp-text"
+            >
+              Back
+            </button>
+          </div>
+        </div>
       )}
 
-      {mode === "role" && (
-        <ProfileForm
-          title="New IAM Role profile"
-          onCancel={() => setMode("pick")}
-          onSave={() => void saveRoleProfile()}
-          saving={saving}
-        >
-          <ProfileFields
-            profileName={profileName}
-            setProfileName={setProfileName}
-            accountId={accountId}
-            setAccountId={setAccountId}
-            region={region}
-            setRegion={setRegion}
-          />
-          <label className="block">
-            <span className="mb-1 flex items-center gap-1 text-xs text-kp-muted">
-              External ID
-              <PermissionsHelp kind="cloudformation" externalId={externalId} />
-            </span>
-            <input readOnly value={externalId} className={`${inputBase} ${inputOk} font-mono text-xs`} />
-          </label>
-          <label className="block">
-            <span className="mb-1 flex items-center gap-1 text-xs text-kp-muted">
-              Role ARN
-              <PermissionsHelp kind="iam_role" externalId={externalId} />
-            </span>
-            <input value={roleArn} onChange={(e) => setRoleArn(e.target.value)} placeholder="arn:aws:iam::123456789012:role/KubePilot-ReadOnly" className={`${inputBase} ${inputOk} font-mono text-xs`} />
-          </label>
-        </ProfileForm>
+      {flow === "role_profiles" && (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[min(100%,20rem)] flex-1">
+              <label className="block">
+                <span className="mb-1.5 flex items-center gap-2 text-xs font-medium text-kp-muted">
+                  IAM role profile
+                  <PermissionsHelp kind="iam_role" externalId={externalId} />
+                </span>
+                {loading ? (
+                  <p className="text-sm text-kp-muted">Loading profiles…</p>
+                ) : (
+                  <select
+                    value={roleSelect}
+                    onChange={(e) => {
+                      setRoleSelect(e.target.value);
+                      setSuccess(null);
+                    }}
+                    className={`${inputBase} ${inputOk}`}
+                  >
+                    <option value="">Select a saved profile…</option>
+                    {roleProfiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.profile_name} · {p.aws_account_id} · {p.default_region}
+                      </option>
+                    ))}
+                    <option value={CREATE_NEW_VALUE}>Create new profile…</option>
+                  </select>
+                )}
+              </label>
+            </div>
+            {roleSelect && roleSelect !== CREATE_NEW_VALUE && (
+              <button
+                type="button"
+                onClick={() => void handleDeleteRoleProfile(roleSelect)}
+                className="inline-flex items-center gap-2 rounded-lg border border-kp-border px-3 py-2.5 text-sm text-kp-muted hover:border-red-500/40 hover:text-red-300"
+                aria-label="Delete selected profile"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </button>
+            )}
+          </div>
+
+          {roleSelect === CREATE_NEW_VALUE && (
+            <ProfileForm
+              title="New IAM Role profile"
+              onCancel={() => {
+                setRoleSelect("");
+                resetRoleFormFields();
+              }}
+              onSave={() => void saveRoleProfile()}
+              saving={saving}
+            >
+              <ProfileFields
+                profileName={profileName}
+                setProfileName={setProfileName}
+                accountId={accountId}
+                setAccountId={setAccountId}
+                region={region}
+                setRegion={setRegion}
+              />
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1 text-xs text-kp-muted">
+                  External ID
+                  <PermissionsHelp kind="cloudformation" externalId={externalId} />
+                </span>
+                <input readOnly value={externalId} className={`${inputBase} ${inputOk} font-mono text-xs`} />
+              </label>
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1 text-xs text-kp-muted">
+                  Role ARN
+                  <PermissionsHelp kind="iam_role" externalId={externalId} />
+                </span>
+                <input value={roleArn} onChange={(e) => setRoleArn(e.target.value)} placeholder="arn:aws:iam::123456789012:role/KubePilot-ReadOnly" className={`${inputBase} ${inputOk} font-mono text-xs`} />
+              </label>
+            </ProfileForm>
+          )}
+
+          <div className="flex flex-wrap gap-3 border-t border-kp-border pt-6">
+            <button
+              type="button"
+              disabled={!roleSelect || roleSelect === CREATE_NEW_VALUE}
+              onClick={() => onContinue(roleSelect)}
+              className="rounded-lg bg-kp-blue px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Continue with selected profile
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFlow("choose_type");
+                setRoleSelect("");
+                resetRoleFormFields();
+                setSuccess(null);
+              }}
+              className="text-sm text-kp-muted hover:text-kp-text"
+            >
+              Back
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -375,7 +519,9 @@ function ProfileFields({
           <span className="mb-1 text-xs text-kp-muted">Default region</span>
           <select value={region} onChange={(e) => setRegion(e.target.value)} className={`${inputBase} ${inputOk}`}>
             {AWS_REGIONS.map((r) => (
-              <option key={r} value={r}>{r}</option>
+              <option key={r} value={r}>
+                {r}
+              </option>
             ))}
           </select>
         </label>

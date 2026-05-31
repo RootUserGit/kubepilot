@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,10 +13,20 @@ from kubepilot.api.main import app
 from kubepilot.core.settings import Settings, get_settings
 
 
+@contextmanager
+def _fake_session_scope():
+    yield MagicMock()
+
+
 def test_session_google_sets_session_cookie() -> None:
     settings = get_settings()
     exchange_code = "test-exchange-code-12345678"
     payload = json.dumps({"user_email": "user@example.com", "display_name": "Test User"})
+    uid = uuid4()
+    user_row = MagicMock()
+    user_row.id = uid
+    user_row.email = "user@example.com"
+    user_row.display_name = "Test User"
 
     class FakeRedis:
         async def get(self, key: str) -> str | None:
@@ -27,8 +40,15 @@ def test_session_google_sets_session_cookie() -> None:
         async def setex(self, key: str, ttl: int, value: str) -> bool:
             return True
 
-    with TestClient(app) as client:
-        app.state.redis = FakeRedis()
+    with (
+        patch("kubepilot.api.routes.auth.session_scope", _fake_session_scope),
+        patch(
+            "kubepilot.api.routes.auth.ensure_user_with_default_org",
+            return_value=(user_row, MagicMock()),
+        ),
+        TestClient(app) as client,
+    ):
+        client.app.state.redis = FakeRedis()
         res = client.post("/v1/auth/session/google", json={"code": exchange_code})
 
     assert res.status_code == 200
@@ -81,7 +101,7 @@ def test_session_verify_rejects_idle_session(monkeypatch: pytest.MonkeyPatch) ->
 
     redis = FakeRedis()
     with TestClient(app) as client:
-        app.state.redis = redis
+        client.app.state.redis = redis
         res = client.get(
             "/v1/auth/session/verify",
             cookies={settings.auth_cookie_name: token},

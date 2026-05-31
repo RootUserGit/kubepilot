@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubepilot-agent-context
+  labels:
+    app.kubernetes.io/name: kubepilot-agent
+data:
+  clusterName: {{ .Values.clusterName | quote }}
+  awsAccountId: {{ .Values.awsAccountId | quote }}
+  awsRegion: {{ .Values.awsRegion | quote }}
+  environment: {{ .Values.environment | quote }}

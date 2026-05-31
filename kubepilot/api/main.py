@@ -12,6 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from kubepilot.api.exceptions import register_exception_handlers
 from kubepilot.api.google_oauth import bootstrap_google_oauth
+from kubepilot.api.middleware.saas import RateLimitMiddleware, RequestIdMiddleware
 from kubepilot.api.routes.auth import router as auth_router
 from kubepilot.api.v1 import v1_router
 from kubepilot.core.environment import fastapi_openapi_urls, is_production_environment
@@ -76,6 +77,10 @@ if _cors_origins:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+app.add_middleware(RequestIdMiddleware)
+if _settings.rate_limit_ip_rpm > 0:
+    app.add_middleware(RateLimitMiddleware)
 
 app.include_router(v1_router, prefix="/v1")
 app.include_router(auth_router)
