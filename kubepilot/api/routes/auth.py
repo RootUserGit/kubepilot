@@ -31,6 +31,8 @@ from kubepilot.api.routes.auth_schemas import (
     SsoProvidersStatus,
 )
 from kubepilot.core.settings import Settings, get_settings
+from kubepilot.db.session import session_scope
+from kubepilot.db.tenancy import ensure_user_with_default_org
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ async def _issue_session_response(
     user_email: str,
     display_name: str | None,
     message: str,
+    user_id: str | None = None,
 ) -> JSONResponse:
     settings = get_settings()
     redis = request.app.state.redis
@@ -58,6 +61,7 @@ async def _issue_session_response(
         redis,
         user_email=user_email,
         display_name=display_name,
+        user_id=user_id,
         settings=settings,
     )
     body = SessionUserResponse(
@@ -198,9 +202,20 @@ async def session_google(body: GoogleSessionRequest, request: Request) -> JSONRe
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail="corrupt exchange payload") from e
 
+    with session_scope() as db:
+        user_row, _org = ensure_user_with_default_org(
+            db,
+            email=str(data["user_email"]),
+            display_name=data.get("display_name"),
+        )
+        email_out = user_row.email
+        display_out = user_row.display_name or data.get("display_name")
+        user_id_str = str(user_row.id)
+
     return await _issue_session_response(
         request,
-        user_email=str(data["user_email"]),
-        display_name=data.get("display_name"),
+        user_email=email_out,
+        display_name=display_out,
         message="Signed in with Google. Welcome to KubePilot.",
+        user_id=user_id_str,
     )

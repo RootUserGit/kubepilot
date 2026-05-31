@@ -424,6 +424,7 @@ export type ClusterRegistrationResponse = {
   name: string;
   registration_status: string;
   helm_install_command: string;
+  helm_install_local_command: string;
   created_at: string;
 };
 
@@ -432,6 +433,7 @@ export type ClusterRegistrationStatusResponse = {
   cluster_name: string;
   registration_status: string;
   message: string | null;
+  owner_check_in_available?: boolean;
 };
 
 export type ApiErrorWithFields = Error & {
@@ -466,6 +468,27 @@ export async function registerCluster(payload: ClusterRegisterPayload): Promise<
   return raw as ClusterRegistrationResponse;
 }
 
+/** Download embedded kubepilot-agent Helm chart (zip). Requires session cookie. */
+export async function downloadAgentHelmChartZip(): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/v1/clusters/agent-helm-chart.zip`);
+  if (!res.ok) {
+    throw new Error(await parseError(res, "Could not download chart bundle"));
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "kubepilot-agent-chart.zip";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export async function getClusterRegistrationStatus(
   clusterId: string,
 ): Promise<ClusterRegistrationStatusResponse> {
@@ -474,6 +497,16 @@ export async function getClusterRegistrationStatus(
     throw new Error(await parseError(res, "Could not load registration status"));
   }
   return res.json();
+}
+
+/** Mark cluster registration as connected (owner session). Fails if KUBEPILOT_AGENT_SERVICE_TOKEN is set on API. */
+export async function postAgentClusterCheckIn(clusterId: string): Promise<{ status: string; cluster_id: string }> {
+  const res = await apiFetch(`${API_BASE}/v1/clusters/${clusterId}/agent/check-in`, { method: "POST" });
+  const raw = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(await parseError(res, "Check-in failed"));
+  }
+  return raw as { status: string; cluster_id: string };
 }
 
 export type AwsConnectionType = "iam_role" | "iam_user";

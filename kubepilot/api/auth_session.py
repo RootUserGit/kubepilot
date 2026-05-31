@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+from typing import Any
 import time
 from typing import Any
 
@@ -51,17 +52,20 @@ async def create_session(
     *,
     user_email: str,
     display_name: str | None,
+    user_id: str | None = None,
     settings: Settings | None = None,
 ) -> str:
     s = settings or get_settings()
     token = secrets.token_urlsafe(32)
     now = int(time.time())
-    payload = {
+    payload: dict[str, Any] = {
         "user_email": user_email,
         "display_name": display_name,
         "created_at": now,
         "last_activity": now,
     }
+    if user_id:
+        payload["user_id"] = user_id
     await redis.setex(
         f"{_SESSION_PREFIX}{token}",
         s.auth_cookie_max_age_seconds,
@@ -104,7 +108,7 @@ async def load_session(
     settings: Settings | None = None,
     *,
     revoke_if_invalid: bool = False,
-) -> dict[str, str] | None:
+) -> dict[str, Any] | None:
     if not token:
         return None
     s = settings or get_settings()
@@ -141,10 +145,14 @@ async def load_session(
         if revoke_if_invalid:
             await redis.delete(key)
         return None
-    return {
+    out: dict[str, str] = {
         "user_email": email,
         "display_name": str(data.get("display_name") or email.split("@")[0]),
     }
+    uid = data.get("user_id")
+    if uid is not None and str(uid).strip():
+        out["user_id"] = str(uid).strip()
+    return out
 
 
 async def revoke_session(redis: Any, token: str | None) -> None:

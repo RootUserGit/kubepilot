@@ -1,0 +1,11 @@
+# Values passed through from the dashboard-generated helm command (--set).
+clusterName: ""
+awsAccountId: ""
+awsRegion: ""
+environment: production
+roleArn: ""
+
+# Placeholder workload until a real agent image is published. Safe no-op pod.
+image:
+  repository: registry.k8s.io/pause
+  tag: "3.9"

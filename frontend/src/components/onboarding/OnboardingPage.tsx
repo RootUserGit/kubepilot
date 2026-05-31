@@ -5,12 +5,16 @@ import { Check, CheckCircle2, Radio, ShieldCheck, Users } from "lucide-react";
 import { CodeTerminal } from "@/components/ui/CodeTerminal";
 import { PublicPageHeader } from "@/components/layout/PublicPageHeader";
 
-const HELM_COMMAND = `helm install kubepilot-agent kubepilot/kubepilot-agent \\
+const HELM_COMMAND = `helm upgrade --install kubepilot-agent kubepilot/kubepilot-agent \\
+  --repo "\${KUBEPILOT_HELM_AGENT_REPO_INDEX_URL:?Set KUBEPILOT_HELM_AGENT_REPO_INDEX_URL to your Helm chart index URL}" \\
   --namespace kubepilot-system \\
   --create-namespace \\
   --set clusterName=payments-v2 \\
   --set awsAccountId=123456789012 \\
-  --set roleArn=arn:aws:iam::123456789012:role/kubepilot-readonly-agent`;
+  --set roleArn=arn:aws:iam::123456789012:role/kubepilot-readonly-agent \\
+  --atomic \\
+  --cleanup-on-fail \\
+  --timeout 10m`;
 
 const prerequisites = [
   <>

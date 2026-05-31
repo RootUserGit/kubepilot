@@ -1,0 +1,7 @@
+KubePilot agent chart (bundle)
+
+1. IRSA: ServiceAccount is annotated with roleArn from --set roleArn (must be arn:aws:iam::ACCOUNT:role/...).
+
+2. This bundle ships a placeholder pause pod. Replace .Values.image with your real agent image when available.
+
+3. Register the cluster in the dashboard, then complete check-in: a real agent POSTs to the API, or (local dev, no KUBEPILOT_AGENT_SERVICE_TOKEN) the owner uses “Mark connected” on the install page.

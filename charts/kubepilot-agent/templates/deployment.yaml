@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubepilot-agent
+  labels:
+    app.kubernetes.io/name: kubepilot-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubepilot-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubepilot-agent
+    spec:
+      serviceAccountName: kubepilot-agent
+      containers:
+        - name: agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: IfNotPresent

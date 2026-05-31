@@ -9,10 +9,49 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from kubepilot.api.deps import get_db
+from kubepilot.api.deps import get_db, require_session_user
 from kubepilot.api.main import app
 from kubepilot.db import models as m
 from kubepilot.db.base import Base
+
+
+def _seed_db(factory: sessionmaker) -> tuple:
+    now = datetime.now(tz=UTC)
+    org_id = uuid4()
+    user_id = uuid4()
+    cluster_id = uuid4()
+    sess = factory()
+    sess.add(
+        m.Organization(
+            id=org_id,
+            name="O",
+            created_at=now,
+            max_clusters=5,
+        )
+    )
+    sess.add(m.User(id=user_id, email="u@e.com", display_name="U", created_at=now))
+    sess.add(
+        m.OrganizationMember(
+            id=uuid4(),
+            organization_id=org_id,
+            user_id=user_id,
+            role="admin",
+        )
+    )
+    sess.add(
+        m.Cluster(
+            id=cluster_id,
+            organization_id=org_id,
+            owner_user_id=user_id,
+            name="minikube",
+            created_at=now,
+            registration_status="connected",
+            kubeconfig_yaml="apiVersion: v1",
+        )
+    )
+    sess.commit()
+    sess.close()
+    return org_id, user_id, cluster_id
 
 
 def test_cluster_summary_endpoint() -> None:
@@ -23,8 +62,6 @@ def test_cluster_summary_endpoint() -> None:
     )
     Base.metadata.create_all(bind=engine)
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    cluster_id = uuid4()
-    now = datetime.now(tz=UTC)
 
     def _db():
         db = factory()
@@ -37,17 +74,16 @@ def test_cluster_summary_endpoint() -> None:
         finally:
             db.close()
 
-    row = m.Cluster(
-        id=cluster_id,
-        name="minikube",
-        created_at=now,
-        registration_status="connected",
-        kubeconfig_yaml="apiVersion: v1",
-    )
-    sess = factory()
-    sess.add(row)
-    sess.commit()
-    sess.close()
+    org_id, user_id, cluster_id = _seed_db(factory)
+    now = datetime.now(tz=UTC)
+
+    async def _auth() -> dict:
+        return {
+            "user_id": str(user_id),
+            "user_email": "u@e.com",
+            "display_name": "U",
+            "organization_ids": [str(org_id)],
+        }
 
     fake_summary = {
         "collected_at": now.isoformat(),
@@ -86,6 +122,7 @@ def test_cluster_summary_endpoint() -> None:
     }
 
     app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[require_session_user] = _auth
     try:
         with patch(
             "kubepilot.api.v1.router.collect_cluster_summary",
@@ -124,7 +161,18 @@ def test_cluster_summary_not_found() -> None:
         finally:
             db.close()
 
+    org_id, user_id, _ = _seed_db(factory)
+
+    async def _auth() -> dict:
+        return {
+            "user_id": str(user_id),
+            "user_email": "u@e.com",
+            "display_name": "U",
+            "organization_ids": [str(org_id)],
+        }
+
     app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[require_session_user] = _auth
     try:
         with TestClient(app) as client:
             r = client.get(f"/v1/clusters/{uuid4()}/summary")

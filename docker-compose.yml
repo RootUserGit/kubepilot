@@ -2,6 +2,11 @@
 # Start everything:  docker compose up -d --build
 # Dependencies only: docker compose up -d postgres redis
 # Clean old containers after changing compose: docker compose down --remove-orphans
+#
+# Production-style layout (typical): TLS ingress → Next.js (static/SSR) + FastAPI API on separate
+# hosts or path prefixes; secrets from a vault (not plain env files); Redis/Postgres managed.
+# Optional Next.js service is not defined here — use `make web` locally or add a `frontend` image.
+# After schema changes: `docker compose run --rm migrate` or rely on migrate service on `up`.
 
 services:
   postgres:

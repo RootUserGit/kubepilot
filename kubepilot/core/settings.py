@@ -83,5 +83,21 @@ class Settings(BaseSettings):
     # Fernet key for encrypting AWS profile credentials at rest (openssl rand -hex 32).
     credentials_encryption_key: str | None = None
 
+    # In-cluster agent: POST /v1/clusters/{id}/agent/check-in with header X-KubePilot-Agent-Token.
+    agent_service_token: str | None = None
+
+    # Prefer JSON log formatting in production (configure root handlers in deployment).
+    log_json: bool = False
+
+    # Per-IP requests per minute via Redis (0 = disabled).
+    rate_limit_ip_rpm: int = 0
+    rate_limit_redis_prefix: str = "rl:"
+
+    # Helm index root URL (parent of index.yaml) for the in-cluster agent chart.
+    # When unset, generated install commands use --repo "${KUBEPILOT_HELM_AGENT_REPO_INDEX_URL:?...}"
+    # so operators can export the URL once before pasting the command.
+    helm_agent_repo_index_url: str | None = None
+
+
 def get_settings() -> Settings:
     return Settings()

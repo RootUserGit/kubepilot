@@ -134,7 +134,9 @@ class ClusterRegisterRequest(BaseModel):
         m = re.match(r"^arn:aws:iam::(\d{12}):role/.+", self.role_arn)
         if not m:
             raise ValueError(
-                "Role ARN must look like arn:aws:iam::123456789012:role/your-role-name"
+                "Agent IRSA role ARN must be an IAM role ARN, e.g. "
+                "arn:aws:iam::123456789012:role/your-role-name "
+                "(not an EKS cluster ARN like arn:aws:eks:...:cluster/...)."
             )
         if m.group(1) != self.aws_account_id:
             raise ValueError(
@@ -148,6 +150,8 @@ class ClusterRegistrationResponse(BaseModel):
     name: str
     registration_status: str
     helm_install_command: str
+    # Install using the chart from GET /v1/clusters/agent-helm-chart.zip (unzip → ./kubepilot-agent).
+    helm_install_local_command: str
     created_at: datetime
 
 
@@ -156,6 +160,8 @@ class ClusterRegistrationStatusResponse(BaseModel):
     cluster_name: str
     registration_status: str
     message: str | None = None
+    # When True, cluster owner may POST /clusters/{id}/agent/check-in without X-KubePilot-Agent-Token (local dev).
+    owner_check_in_available: bool = False
 
 
 class ClusterPublic(BaseModel):

@@ -1,7 +1,7 @@
 # KubePilot — convenience targets. Requires Python 3.12+ venv with `pip install -e ".[dev]"`.
 # Load env: `set -a && source .env && set -a` (after copying env.example → .env)
 
-.PHONY: deps up down logs migrate api worker install web web-build
+.PHONY: deps up down logs migrate api worker install web web-build openapi-export
 
 install:
 	python -m pip install --upgrade pip
@@ -33,3 +33,6 @@ web:
 
 web-build:
 	cd frontend && npm run build
+
+openapi-export:
+	python scripts/export_openapi.py
